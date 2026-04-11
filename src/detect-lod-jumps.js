@@ -5,6 +5,15 @@ import { chromium } from 'playwright';
 
 import { parseGPX } from './parse-gpx.js';
 import { startServer } from './server.js';
+import { computeRenderConfig } from './render-config.js';
+import {
+  tileLevel,
+  tileSignature,
+  sameTileLists,
+  diffTiles,
+  inferTileTransitions,
+  computeStats,
+} from './lod-analysis.js';
 
 const API_KEY = process.env.MAPTILER_KEY;
 if (!API_KEY) {
@@ -15,23 +24,6 @@ if (!API_KEY) {
 function flag(args, name) {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
-}
-
-function computeRenderConfig(trackData, fps) {
-  const INTRO_SEC = 9;
-  const TRAIL_PACE = 0.5;
-  const DWELL_SEC = 2;
-  const MIN_TRAIL_SEC = 20;
-  const FINISH_SEC = 4;
-
-  const distKm = trackData.totalDistance / 1000;
-  const autoTrailSec = Math.max(MIN_TRAIL_SEC, distKm * TRAIL_PACE);
-  const autoDwellSec = trackData.stops.length * DWELL_SEC;
-  const duration = Math.ceil(INTRO_SEC + autoTrailSec + autoDwellSec + FINISH_SEC);
-  const totalFrames = duration * fps;
-  const introFrames = INTRO_SEC * fps;
-
-  return { duration, totalFrames, introFrames };
 }
 
 function restoreCachedMeta(trackData, gpxFile) {
@@ -53,108 +45,17 @@ function restoreCachedMeta(trackData, gpxFile) {
   return true;
 }
 
-function tileLevel(tile) {
-  return tile.overscaledZ ?? tile.z ?? -1;
-}
-
-function tileSignature(source) {
-  return (source?.renderableTiles || [])
-    .map((tile) => `${tile.key}@${tileLevel(tile)}`)
-    .sort();
-}
-
-function mapBySignature(tiles) {
-  return new Map(tiles.map((tile) => [`${tile.key}@${tileLevel(tile)}`, tile]));
-}
-
-function sameTileLists(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-function diffTiles(prevTiles, currTiles) {
-  const prevMap = mapBySignature(prevTiles);
-  const currMap = mapBySignature(currTiles);
-  const added = [];
-  const removed = [];
-
-  for (const [sig, tile] of currMap) {
-    if (!prevMap.has(sig)) added.push(tile);
-  }
-  for (const [sig, tile] of prevMap) {
-    if (!currMap.has(sig)) removed.push(tile);
-  }
-
-  return { added, removed };
-}
-
-function canonicalContains(parent, child) {
-  if (parent.z == null || child.z == null || parent.x == null || child.x == null || parent.y == null || child.y == null) return false;
-  if (child.z < parent.z) return false;
-  const scale = 1 << (child.z - parent.z);
-  return Math.floor(child.x / scale) === parent.x && Math.floor(child.y / scale) === parent.y;
-}
-
-function inferTileTransitions(removed, added) {
-  const upgrades = [];
-  const downgrades = [];
-
-  for (const fromTile of removed) {
-    for (const toTile of added) {
-      const fromLevel = tileLevel(fromTile);
-      const toLevel = tileLevel(toTile);
-
-      if (canonicalContains(fromTile, toTile) && toLevel > fromLevel) {
-        upgrades.push({
-          from: `${fromTile.key}@${fromLevel}`,
-          to: `${toTile.key}@${toLevel}`,
-        });
-      } else if (canonicalContains(toTile, fromTile) && fromLevel > toLevel) {
-        downgrades.push({
-          from: `${fromTile.key}@${fromLevel}`,
-          to: `${toTile.key}@${toLevel}`,
-        });
-      }
-    }
-  }
-
-  const dedupe = (items) => {
-    const seen = new Set();
-    return items.filter((item) => {
-      const key = `${item.from}->${item.to}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
-
-  return {
-    upgrades: dedupe(upgrades),
-    downgrades: dedupe(downgrades),
-  };
-}
-
-function computeStats(values) {
-  if (values.length === 0) return { mean: 0, stddev: 0, p95: 0, p99: 0, max: 0 };
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-  const sorted = [...values].sort((a, b) => a - b);
-  const pick = (pct) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * pct))];
-  return {
-    mean,
-    stddev: Math.sqrt(variance),
-    p95: pick(0.95),
-    p99: pick(0.99),
-    max: sorted[sorted.length - 1],
-  };
-}
-
 async function main() {
   const args = process.argv.slice(2);
-  const gpxFile = args.find((arg) => arg.endsWith('.gpx')) || 'activity_580930440.gpx';
+  const gpxFile = args.find((arg) => arg.endsWith('.gpx'));
+  if (!gpxFile) {
+    console.error('Usage: node src/detect-lod-jumps.js <path/to/track.gpx> [--fps 30] [--port 3456] [--output output/lod_report.json] [--start-frame N] [--end-frame N]');
+    process.exit(1);
+  }
+  if (!fs.existsSync(gpxFile)) {
+    console.error(`GPX file not found: ${gpxFile}`);
+    process.exit(1);
+  }
   const fps = parseInt(flag(args, '--fps') || '30', 10);
   const port = parseInt(flag(args, '--port') || '3456', 10);
   const outputFile = path.resolve(flag(args, '--output') || 'output/lod_report.json');

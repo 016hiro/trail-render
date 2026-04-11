@@ -13,7 +13,9 @@ const FRAMES = 60;
 const TOTAL_FRAMES = 1800;
 
 async function main() {
-  const trackData = parseGPX('activity_580930440.gpx');
+  const gpxFile = process.argv[2];
+  if (!gpxFile) { console.error('Usage: node src/benchmark.js <path/to/track.gpx>'); process.exit(1); }
+  const trackData = parseGPX(gpxFile);
   const server = await startServer(trackData, API_KEY, 3456);
 
   const browser = await chromium.launch({

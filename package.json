@@ -5,7 +5,10 @@
   "scripts": {
     "start": "node src/index.js",
     "preview": "node src/index.js --preview",
-    "detect:lod": "node src/detect-lod-jumps.js"
+    "detect:lod": "node src/detect-lod-jumps.js",
+    "regress": "node scripts/regress.js",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node --test test/e2e/*.test.js"
   },
   "dependencies": {
     "express": "^4.21.0",

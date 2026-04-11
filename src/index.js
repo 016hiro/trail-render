@@ -1,6 +1,8 @@
 import { parseGPX } from './parse-gpx.js';
 import { startServer } from './server.js';
 import { captureFrames } from './capture.js';
+import { computeRenderConfig, INTRO_SEC } from './render-config.js';
+import { chromium } from 'playwright';
 import path from 'path';
 import fs from 'fs/promises';
 import { execSync } from 'child_process';
@@ -28,7 +30,15 @@ async function fetchRetry(url, opts = {}, retries = 3) {
 async function main() {
   const args = process.argv.slice(2);
 
-  const gpxFile  = args.find(a => a.endsWith('.gpx')) || 'activity_580930440.gpx';
+  const gpxFile = args.find(a => a.endsWith('.gpx'));
+  if (!gpxFile) {
+    console.error('Usage: npm start <path/to/track.gpx> [--fps 30] [--width 1920] [--height 1080] [--output output/trail.mp4] [--preview] [--duration SECS] [--title NAME] [--end NAME] [--name TRAIL_NAME]');
+    process.exit(1);
+  }
+  if (!(await fileExists(gpxFile))) {
+    console.error(`GPX file not found: ${gpxFile}`);
+    process.exit(1);
+  }
   const fps      = parseInt(flag(args, '--fps') || '30');
   const width    = parseInt(flag(args, '--width') || '1920');
   const height   = parseInt(flag(args, '--height') || '1080');
@@ -36,14 +46,7 @@ async function main() {
   const preview  = args.includes('--preview');
   const port     = 3456;
 
-  // Duration constants
-  const INTRO_SEC = 9;
-  const TRAIL_PACE = 0.5;  // seconds per km
-  const DWELL_SEC = 2;     // seconds per overnight stop
-  const MIN_TRAIL_SEC = 20;
-
-  try { execSync('ffmpeg -version', { stdio: 'ignore' }); }
-  catch { console.error('ffmpeg not found. Install: brew install ffmpeg'); process.exit(1); }
+  if (!preview) await preflight();
 
   await fs.mkdir(path.dirname(path.resolve(outFile)), { recursive: true });
 
@@ -107,16 +110,11 @@ async function main() {
   console.log(`  POIs: ${trackData.pois.length} (${trackData.pois.filter(p => p.type === 'peak').length} peaks, ${trackData.pois.filter(p => p.type === 'lake').length} lakes, ${trackData.pois.filter(p => p.type === 'pass').length} passes)`);
 
   // Auto-compute duration from distance + stops, or use --duration override
-  const distKm = trackData.totalDistance / 1000;
-  const autoTrailSec = Math.max(MIN_TRAIL_SEC, distKm * TRAIL_PACE);
-  const autoDwellSec = trackData.stops.length * DWELL_SEC;
-  const FINISH_SEC = 4; // hold at end for FINISH label
-  const autoDuration = Math.ceil(INTRO_SEC + autoTrailSec + autoDwellSec + FINISH_SEC);
-  const duration = parseInt(flag(args, '--duration') || String(autoDuration));
-  const introFrames = INTRO_SEC * fps;
-
+  const auto = computeRenderConfig(trackData, fps);
+  const duration = parseInt(flag(args, '--duration') || String(auto.duration));
   const totalFrames = duration * fps;
-  console.log(`  Video: ${duration}s @ ${fps}fps = ${totalFrames} frames (auto: ${autoDuration}s = ${INTRO_SEC}s intro + ${autoTrailSec.toFixed(0)}s trail + ${autoDwellSec}s dwell)`);
+  const introFrames = auto.introFrames;
+  console.log(`  Video: ${duration}s @ ${fps}fps = ${totalFrames} frames (auto: ${auto.duration}s = ${INTRO_SEC}s intro + ${auto.autoTrailSec.toFixed(0)}s trail + ${auto.autoDwellSec}s dwell)`);
 
   // Pass introFrames + optional trail name to frontend via config
   const server = await startServer(trackData, API_KEY, port, introFrames, {
@@ -141,6 +139,19 @@ async function main() {
 function flag(args, name) {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
+}
+
+async function preflight() {
+  try { execSync('ffmpeg -version', { stdio: 'ignore' }); }
+  catch { console.error('ffmpeg not found. Install: brew install ffmpeg  (macOS) | apt install ffmpeg  (Debian)'); process.exit(1); }
+
+  try {
+    const exe = chromium.executablePath();
+    await fs.access(exe);
+  } catch {
+    console.error('Playwright chromium not installed. Run: npx playwright install chromium');
+    process.exit(1);
+  }
 }
 
 /* ==================== DEM calibration (sparse + interpolate) ==================== */

@@ -17,7 +17,8 @@ import { startServer } from './server.js';
 import { parseGPX } from './parse-gpx.js';
 import fs from 'fs';
 
-const gpxFile = process.argv[2] || 'activity_580930440.gpx';
+const gpxFile = process.argv[2];
+if (!gpxFile) { console.error('Usage: node src/jitter-metric.js <path/to/track.gpx>'); process.exit(1); }
 
 async function run() {
   // Parse and enrich

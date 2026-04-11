@@ -5,7 +5,8 @@
 import { parseGPX } from './parse-gpx.js';
 import fs from 'fs';
 
-const gpxFile = process.argv[2] || 'activity_580930440.gpx';
+const gpxFile = process.argv[2];
+if (!gpxFile) { console.error('Usage: node src/camera-sweep.js <path/to/track.gpx>'); process.exit(1); }
 const data = parseGPX(gpxFile);
 const pts = data.points;
 const stops = data.stops;
