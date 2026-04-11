@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Trail Render</title>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; }
+    #map { width: 1920px; height: 1080px; }
+
+    /* ---- cinematic text shadow: readable on snow, rock, forest ---- */
+    .cine-text {
+      text-shadow:
+        0 0 6px rgba(0,0,0,1),
+        0 0 14px rgba(0,0,0,0.8),
+        0 1px 3px rgba(0,0,0,1),
+        0 0 40px rgba(0,0,0,0.4);
+    }
+
+    /* ---------- HUD ---------- */
+    #hud {
+      position: absolute; bottom: 48px; left: 48px;
+      color: #fff; font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      z-index: 10; pointer-events: none;
+    }
+    .hud-row { display: flex; align-items: baseline; margin-bottom: 8px; }
+    .hud-label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+      opacity: 0.6; width: 90px;
+    }
+    .hud-value { font-size: 22px; font-weight: 700; }
+
+    /* ---------- Elevation bar ---------- */
+    #ele-bar {
+      position: absolute; right: 56px; top: 50%; transform: translateY(-50%);
+      width: 9px; height: 440px;
+      background: rgba(255,255,255,0.12); border-radius: 5px;
+      z-index: 10; pointer-events: none;
+    }
+    #ele-fill {
+      position: absolute; bottom: 0; width: 100%;
+      background: linear-gradient(to top, #4ecdc4, #ff6b35, #ff4444);
+      border-radius: 5px;
+    }
+    #ele-tag {
+      position: absolute; right: 78px;
+      color: #fff; font-family: 'SF Mono', monospace; font-size: 17px; font-weight: 500;
+      transform: translateY(-50%); white-space: nowrap;
+      z-index: 10; pointer-events: none;
+    }
+
+    /* ---------- Overlay labels ---------- */
+    #trail-name-label {
+      position: absolute; top: 36%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff; font-family: 'Helvetica Neue', 'Arial', sans-serif;
+      font-size: 72px; font-weight: 200; letter-spacing: 28px; text-transform: uppercase;
+      z-index: 20; pointer-events: none; opacity: 0;
+    }
+    #country-label {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff; font-family: 'Helvetica Neue', 'Arial', sans-serif;
+      font-size: 64px; font-weight: 300; letter-spacing: 24px; text-transform: uppercase;
+      z-index: 20; pointer-events: none; opacity: 0;
+    }
+    #fade-black {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: #000; opacity: 0; pointer-events: none; z-index: 50;
+    }
+    #start-label {
+      position: absolute; top: 62%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff; font-family: 'Helvetica Neue', 'Arial', sans-serif;
+      text-align: center;
+      z-index: 20; pointer-events: none; opacity: 0;
+    }
+    #start-label .tag  { font-size: 13px; font-weight: 400; letter-spacing: 6px; text-transform: uppercase; opacity: 0.6; margin-bottom: 6px; }
+    #start-label .name { font-size: 32px; font-weight: 500; letter-spacing: 6px; text-transform: uppercase; }
+    #start-label .ele  { font-size: 16px; font-weight: 300; letter-spacing: 3px; margin-top: 8px; opacity: 0.7; }
+
+    #stop-label {
+      position: absolute; top: 120px; left: 50%;
+      transform: translateX(-50%);
+      color: #fff; font-family: 'Helvetica Neue', 'Arial', sans-serif;
+      text-align: center;
+      z-index: 20; pointer-events: none; opacity: 0;
+    }
+    #stop-label .day  { font-size: 13px; font-weight: 400; letter-spacing: 6px; text-transform: uppercase; opacity: 0.6; margin-bottom: 6px; }
+    #stop-label .name { font-size: 26px; font-weight: 500; letter-spacing: 4px; text-transform: uppercase; }
+    #stop-label .ele  { font-size: 14px; font-weight: 300; letter-spacing: 2px; margin-top: 6px; opacity: 0.7; }
+
+    #route-label {
+      position: absolute; top: 120px; left: 50%;
+      transform: translateX(-50%);
+      color: #fff; font-family: 'Helvetica Neue', 'Arial', sans-serif;
+      font-size: 22px; font-weight: 600; letter-spacing: 4px; text-transform: uppercase;
+      z-index: 20; pointer-events: none; opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="night-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#000;opacity:0;pointer-events:none;z-index:5;"></div>
+  <div id="fade-black"></div>
+  <div id="trail-name-label" class="cine-text"></div>
+  <div id="country-label" class="cine-text"></div>
+  <div id="start-label" class="cine-text">
+    <div class="tag">START</div>
+    <div class="name"></div>
+    <div class="ele"></div>
+  </div>
+  <div id="route-label" class="cine-text"></div>
+  <div id="stop-label" class="cine-text">
+    <div class="day"></div>
+    <div class="name"></div>
+    <div class="ele"></div>
+  </div>
+
+  <div id="hud" class="cine-text">
+    <div class="hud-row">
+      <span class="hud-label">Distance</span>
+      <span class="hud-value" id="v-dist">0.0 km</span>
+    </div>
+    <div class="hud-row">
+      <span class="hud-label">Elevation</span>
+      <span class="hud-value" id="v-ele">0 m</span>
+    </div>
+    <div class="hud-row">
+      <span class="hud-label">Day</span>
+      <span class="hud-value" id="v-day">1</span>
+    </div>
+  </div>
+  <div id="ele-bar"><div id="ele-fill"></div></div>
+  <div id="ele-tag" class="cine-text"></div>
+
+<script type="module">
+let map, trackData, config;
+window.mapReady = false;
+window.frameReady = false;
+
+async function init() {
+  [trackData, config] = await Promise.all([
+    fetch('/api/track').then(r => r.json()),
+    fetch('/api/config').then(r => r.json()),
+  ]);
+
+  // Expose points for tile pre-warming (used by capture.js)
+  window.__trackPoints = trackData.points;
+
+  // Load camera strategy (default: smooth-constant, overridable via config)
+  const strategyName = config.cameraStrategy || 'smooth-constant';
+  camera = await import('./camera/' + strategyName + '.js');
+  camera.initIntro(trackData.points);
+
+  document.getElementById('trail-name-label').textContent = config.trailName || '';
+  document.getElementById('country-label').textContent = trackData.country || '';
+  document.querySelector('#start-label .name').textContent = trackData.startName || '';
+  document.querySelector('#start-label .ele').textContent = Math.round(trackData.points[0].ele) + ' m';
+
+  const p0 = trackData.points[0];
+
+  // CRITICAL: We bypass MapTiler's style.json (and tile.json) URLs because
+  // MapLibre lets the JSON-supplied maxzoom OVERRIDE any maxzoom we set in
+  // addSource. With inline `tiles: [...]` we keep full control.
+  //
+  // Both satellite and DEM are LOCKED to a single zoom level (TILE_MAXZOOM).
+  // This eliminates the "blurry → sharp" pop caused by MapLibre upgrading
+  // tiles from one LOD to another mid-recording (which the prewarm couldn't
+  // catch because it loaded zoom-N tiles while recording later wanted zoom-N+1).
+  const apiKey = config.apiKey;
+  // Lock both satellite and DEM to a single LOD (zoom 11). This eliminates the
+  // dramatic blurry→sharp pops from per-tile LOD mixing under pitch. The
+  // tradeoff is slightly lower foreground detail than uncapped MapTiler, but
+  // the picture stays consistent across every frame.
+  const SAT_MAXZOOM = 11;
+  const DEM_MAXZOOM = 11;
+
+  // Two satellite sources:
+  //   'satellite'      — full pyramid (z0-z11), used during intro globe zoom
+  //   'satellite-trail' — ONLY z11, used during trail phase to avoid the
+  //                       progressive z9→z10→z11 upgrades that cause 1-frame
+  //                       "mosaic seam" pops as horizon tiles refine.
+  // Layer visibility is toggled at the intro→trail phase transition.
+  const customStyle = {
+    version: 8,
+    glyphs: `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=${apiKey}`,
+    sources: {
+      satellite: {
+        type: 'raster',
+        tiles: [`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${apiKey}`],
+        tileSize: 512,
+        minzoom: 0,
+        maxzoom: SAT_MAXZOOM,
+        attribution: '\u00a9 MapTiler \u00a9 OpenStreetMap contributors',
+      },
+      'satellite-trail': {
+        type: 'raster',
+        tiles: [`https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=${apiKey}`],
+        tileSize: 512,
+        minzoom: SAT_MAXZOOM,
+        maxzoom: SAT_MAXZOOM,
+      },
+    },
+    layers: [
+      { id: 'background', type: 'background', paint: { 'background-color': '#000' } },
+      { id: 'satellite-layer', type: 'raster', source: 'satellite' },
+      { id: 'satellite-trail-layer', type: 'raster', source: 'satellite-trail', layout: { visibility: 'none' } },
+    ],
+  };
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style: customStyle,
+    center: [p0.lon, p0.lat],
+    zoom: 1.5,
+    pitch: 0,
+    bearing: 0,
+    maxPitch: 85,
+    preserveDrawingBuffer: true,
+    maxTileCacheSize: 1500,
+    fadeDuration: 0,
+  });
+  window.map = map;  // expose for Playwright
+  window.__mapInstance = map; // avoid collision with #map element global
+
+  map.on('load', () => {
+    // Single full-pyramid DEM source. A z11-only DEM was tried but MapLibre
+    // won't build the far-horizon mesh without lower-zoom DEM tiles, so the
+    // whole image goes flat. The small residual mid-segment peaks from DEM
+    // LOD refinement are accepted in exchange for keeping the 3D.
+    map.addSource('terrain-src', {
+      type: 'raster-dem',
+      tiles: [`https://api.maptiler.com/tiles/terrain-rgb-v2/{z}/{x}/{y}.webp?key=${apiKey}`],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: DEM_MAXZOOM,
+      encoding: 'mapbox',
+    });
+    map.setTerrain({ source: 'terrain-src', exaggeration: 1.3 });
+
+    map.addLayer({
+      id: 'sky', type: 'sky',
+      paint: { 'sky-type': 'atmosphere', 'sky-atmosphere-sun': [0, 45], 'sky-atmosphere-sun-intensity': 5 },
+    });
+
+    // ---- Country border (visible during intro zoom-out) ----
+    if (trackData.countryBorder) {
+      map.addSource('country-border', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: trackData.countryBorder },
+      });
+      map.addLayer({
+        id: 'country-glow', type: 'line', source: 'country-border',
+        paint: {
+          'line-color': '#FFD700',
+          'line-width': 6,
+          'line-blur': 4,
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.7, 8, 0],
+        },
+      });
+      map.addLayer({
+        id: 'country-line', type: 'line', source: 'country-border',
+        paint: {
+          'line-color': '#FFD700',
+          'line-width': 1.8,
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 1, 1.0, 8, 0],
+        },
+      });
+    }
+
+    // ---- POI labels (peaks, lakes, passes) ----
+    if (trackData.pois && trackData.pois.length > 0) {
+      const poiFeatures = trackData.pois.map(p => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+        properties: {
+          name: p.name,
+          label: p.ele ? p.name + '\n' + p.ele + ' m' : p.name,
+          type: p.type,
+        },
+      }));
+      map.addSource('pois', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: poiFeatures },
+      });
+      map.addLayer({
+        id: 'poi-labels',
+        type: 'symbol',
+        source: 'pois',
+        minzoom: 10,
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 14,
+          'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+          'text-anchor': 'bottom',
+          'text-offset': [0, -0.6],
+          'text-max-width': 12,
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#000000',
+          'text-halo-width': 2,
+          'text-halo-blur': 0.5,
+          'text-opacity': 0.95,
+        },
+      });
+      // Small dot under each POI label
+      map.addLayer({
+        id: 'poi-dots',
+        type: 'circle',
+        source: 'pois',
+        minzoom: 10,
+        paint: {
+          'circle-radius': 2.5,
+          'circle-color': '#ffffff',
+          'circle-stroke-color': 'rgba(0,0,0,0.6)',
+          'circle-stroke-width': 1,
+          'circle-opacity': 0.7,
+        },
+      });
+    }
+
+    // Trail layers
+    map.addSource('trail', { type: 'geojson', data: emptyLine() });
+    map.addLayer({
+      id: 'trail-glow', type: 'line', source: 'trail',
+      paint: { 'line-color': '#FF6B35', 'line-width': 8, 'line-opacity': 0.35, 'line-blur': 3 },
+    });
+    map.addLayer({
+      id: 'trail-line', type: 'line', source: 'trail',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#FF6B35', 'line-width': 3, 'line-opacity': 0.95 },
+    });
+
+    // Position marker
+    map.addSource('pos', { type: 'geojson', data: emptyPoint() });
+    map.addLayer({
+      id: 'pos-glow', type: 'circle', source: 'pos',
+      paint: { 'circle-radius': 9, 'circle-color': '#FF6B35', 'circle-opacity': 0.45, 'circle-blur': 0.6 },
+    });
+    map.addLayer({
+      id: 'pos-dot', type: 'circle', source: 'pos',
+      paint: { 'circle-radius': 4.5, 'circle-color': '#fff', 'circle-stroke-color': '#FF6B35', 'circle-stroke-width': 2 },
+    });
+
+    // Only the satellite layer is swapped. Terrain stays on terrain-src
+    // throughout because a z11-only DEM disables the far-horizon mesh and
+    // flattens the 3D look.
+    window.__setMapPhase = (phase) => {
+      const introVis = phase === 'intro' ? 'visible' : 'none';
+      const trailVis = phase === 'trail' ? 'visible' : 'none';
+      if (map.getLayer('satellite-layer')) {
+        map.setLayoutProperty('satellite-layer', 'visibility', introVis);
+      }
+      if (map.getLayer('satellite-trail-layer')) {
+        map.setLayoutProperty('satellite-trail-layer', 'visibility', trailVis);
+      }
+      window.__mapPhase = phase;
+    };
+    window.__setMapPhase('intro');
+
+    // Pre-warm helper used by capture.js BEFORE recording starts.
+    //
+    // Critical: uses the SAME camera strategy + EMA path as recording, advancing
+    // the EMA every frame so bearings match exactly. This guarantees we load the
+    // same tiles the recording will actually display — not approximations.
+    window.__prewarmTrail = async (totalFrames) => {
+      const introFrames = config.introFrames || 360;
+      const trailFrames = totalFrames - introFrames;
+      const schedule = buildTrailSchedule(trackData.points, trackData.stops, trailFrames);
+
+      // Init camera trail (mirrors what setFrame's first trail-phase call does)
+      camera.initTrail(trackData.points, trackData.stops, {
+        trailFrames,
+        dwellFrames:    DWELL_FRAMES,
+        labelShowFrames: LABEL_SHOW_FRAMES,
+        schedule,
+      });
+
+      // Prewarm walks the trail — switch to trail-phase sources first so the
+      // tiles we load are the same z11-only ones the recording will display.
+      window.__setMapPhase('trail');
+
+      const SAMPLE_EVERY = 30; // 1s — denser values experimentally proved no help
+      const totalSamples = Math.ceil(trailFrames / SAMPLE_EVERY);
+      let sampleNum = 0;
+      window.__prewarmProgress = 0;
+
+      const waitLoad = () => new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        const check = () => {
+          if (done) return;
+          if (map.loaded() && map.areTilesLoaded()) { finish(); return; }
+          map.once('idle', check);
+        };
+        check();
+        setTimeout(finish, 8000); // per-sample hard cap
+      });
+
+      for (let f = 0; f < trailFrames; f++) {
+        // Always step camera so EMA bearing tracks correctly
+        const cam = camera.getTrail(f);
+        if (f % SAMPLE_EVERY === 0) {
+          map.jumpTo({
+            center:  [cam.lon, cam.lat],
+            zoom:    cam.zoom,
+            pitch:   cam.pitch,
+            bearing: cam.bearing,
+          });
+          await waitLoad();
+          sampleNum++;
+          window.__prewarmProgress = sampleNum / totalSamples;
+        }
+      }
+
+      // Reset for the real recording: intro layer on, camera state rewound.
+      window.__setMapPhase('intro');
+      camera.initIntro(trackData.points);
+    };
+
+    window.mapReady = true;
+  });
+}
+
+/* ==================== constants ==================== */
+const DWELL_FRAMES = 60;     // 2s pause at each overnight stop
+const LABEL_SHOW_FRAMES = 120;
+const LABEL_FADE_FRAMES = 20;
+
+/* ==================== state ==================== */
+let camera = null;   // active camera strategy module
+let prevIdx = -1;
+let activeLabelStop = null;
+let labelStartFrame = -Infinity;
+let frameMap = null;  // precomputed frame→pointIndex (for trail line, HUD)
+
+/* ==================== math ==================== */
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+/* ==================== frame control ==================== */
+window.setFrame = function (frameIndex, totalFrames) {
+  window.frameReady = false;
+
+  const pts = trackData.points;
+  const introFrames = config.introFrames || 360;
+
+  /* -------- PHASE 1: globe zoom-in -------- */
+  if (frameIndex < introFrames) {
+    // Swap satellite layer to z11-only source 30 frames before trail starts
+    // (camera zoom ~10.4 by then, z11 tiles already cover the viewport).
+    // Doing it mid-intro hides the momentary satellite tile re-evaluation
+    // behind the ongoing zoom/pitch motion.
+    if (frameIndex === introFrames - 30 && window.__mapPhase !== 'trail') {
+      window.__setMapPhase('trail');
+    }
+    const cam = camera.getIntro(frameIndex, introFrames);
+    const p0 = pts[0];
+
+    map.jumpTo({
+      center: [cam.lon, cam.lat],
+      zoom:    cam.zoom,
+      pitch:   cam.pitch,
+      bearing: cam.bearing,
+    });
+
+    map.getSource('pos').setData({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p0.lon, p0.lat] },
+    });
+    map.getSource('trail').setData(emptyLine());
+
+    // Overlay fades: use linear progress for name (needs to show from frame 0),
+    // eased progress for everything else (synced to zoom motion)
+    const t = cam.t;
+    const tLin = frameIndex / (introFrames - 1); // linear 0→1
+
+    // Trail name: visible immediately, fades out by tLin=0.35
+    const hasName = !!config.trailName;
+    if (hasName) {
+      const nameFadeIn  = clamp01(tLin * 15);              // fully visible by frame ~18
+      const nameFadeOut = clamp01(1 - (tLin - 0.25) * 8);  // start fade at 0.25, gone by 0.375
+      document.getElementById('trail-name-label').style.opacity = nameFadeIn * nameFadeOut;
+    }
+
+    // Country: appears after trail name starts fading, below it
+    const cStart = hasName ? 0.20 : 0;
+    const countryFadeIn  = clamp01((tLin - cStart) * 8);
+    const countryFadeOut = clamp01(1 - (tLin - 0.55) * 6);
+    document.getElementById('country-label').style.opacity = countryFadeIn * countryFadeOut;
+
+    // Start location: appears 0.5s after country fade-in begins (0.5s ≈ tLin 0.056)
+    const sStart = cStart + 0.056;
+    const startFadeIn  = clamp01((tLin - sStart) * 8);
+    const startFadeOut = clamp01(1 - (t - 0.88) * 10);
+    document.getElementById('start-label').style.opacity = startFadeIn * startFadeOut;
+
+    // HUD fades in at the very end
+    const hudOpacity = clamp01((t - 0.85) * 8);
+    document.getElementById('hud').style.opacity = hudOpacity;
+    document.getElementById('ele-bar').style.opacity = hudOpacity;
+    document.getElementById('ele-tag').style.opacity = hudOpacity;
+    document.getElementById('stop-label').style.opacity = 0;
+    document.getElementById('fade-black').style.opacity = 0;
+
+    document.getElementById('v-dist').textContent = '0.0 km';
+    document.getElementById('v-ele').textContent  = Math.round(p0.ele) + ' m';
+    document.getElementById('v-day').textContent   = '1';
+    const range = trackData.bounds.maxEle - trackData.bounds.minEle;
+    const pct = range > 0 ? ((p0.ele - trackData.bounds.minEle) / range) * 100 : 0;
+    updateEleBar(pct, p0.ele);
+
+    waitForTiles();
+    return;
+  }
+
+  /* -------- PHASE 2: trail following -------- */
+  // Safety net: if the intro-time swap didn't happen (e.g. start-frame
+  // override during detection), force it now. Idempotent.
+  if (window.__mapPhase !== 'trail') window.__setMapPhase('trail');
+
+  document.getElementById('trail-name-label').style.opacity = 0;
+  document.getElementById('country-label').style.opacity = 0;
+  document.getElementById('start-label').style.opacity = 0;
+  document.getElementById('hud').style.opacity = 1;
+  document.getElementById('ele-bar').style.opacity = 1;
+  document.getElementById('ele-tag').style.opacity = 1;
+
+  const trailFrames = totalFrames - introFrames;
+  const trailFrame = frameIndex - introFrames;
+
+  // Build distance-based frame map with dwell pauses (once)
+  if (!frameMap) {
+    const schedule = buildTrailSchedule(pts, trackData.stops, trailFrames);
+    frameMap = { map: schedule.map, dwell: schedule.dwell };
+    camera.initTrail(pts, trackData.stops, {
+      trailFrames,
+      dwellFrames: DWELL_FRAMES,
+      labelShowFrames: LABEL_SHOW_FRAMES,
+      schedule,
+    });
+  }
+  const idx = frameMap.map[trailFrame];
+  const dwellT = frameMap.dwell[trailFrame]; // 0 = moving, 0..1 = night progress
+  const cur = pts[idx];
+
+  // Night overlay: dim→dark→brighten during overnight dwell
+  // sin² gives flatter tails than sin, eliminating the color-jump at exit
+  if (dwellT > 0) {
+    const s = Math.sin(dwellT * Math.PI);
+    document.getElementById('night-overlay').style.opacity = s * s * 0.45;
+  } else {
+    document.getElementById('night-overlay').style.opacity = 0;
+  }
+
+  // Trail line
+  const coords = new Array(idx + 1);
+  for (let i = 0; i <= idx; i++) coords[i] = [pts[i].lon, pts[i].lat];
+  map.getSource('trail').setData({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords },
+  });
+
+  // Position dot
+  map.getSource('pos').setData({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [cur.lon, cur.lat] },
+  });
+
+  // Camera: delegate to active strategy
+  const cam = camera.getTrail(trailFrame);
+  map.jumpTo({ center: [cam.lon, cam.lat], bearing: cam.bearing, pitch: cam.pitch, zoom: cam.zoom });
+
+  // --- Labels: route (A→B during movement) + stop (DAY N at dwell) + end ---
+  const multiDay = trackData.stops.length > 0;
+
+  // Detect stop crossings (start point is handled by intro, not here)
+  if (trackData.stops) {
+    for (const stop of trackData.stops) {
+      if (prevIdx < stop.index && idx >= stop.index) {
+        activeLabelStop = stop;
+        labelStartFrame = frameIndex;
+      }
+    }
+  }
+  // End point label
+  if (idx === pts.length - 1 && prevIdx < pts.length - 1) {
+    activeLabelStop = { name: trackData.endName, ele: cur.ele, _isEnd: true };
+    labelStartFrame = frameIndex;
+  }
+  prevIdx = idx;
+
+  // Route label: "DAY N  A → B" during movement (not during dwell or at finish)
+  const routeEl = document.getElementById('route-label');
+  const atFinish = idx >= pts.length - 2;
+  if (dwellT === 0 && !atFinish && trackData.segments) {
+    const segIdx = trackData.segments.findIndex(s => idx >= s.startIdx && idx <= s.endIdx);
+    if (segIdx >= 0) {
+      const seg = trackData.segments[segIdx];
+      const dayPrefix = multiDay ? 'DAY ' + (segIdx + 1) + '   ' : '';
+      routeEl.textContent = dayPrefix + seg.from + '  \u2192  ' + seg.to;
+      routeEl.style.opacity = 0.9;
+    } else {
+      routeEl.style.opacity = 0;
+    }
+  } else {
+    routeEl.style.opacity = 0;
+  }
+
+  // Stop/dwell label: name + elevation only (no DAY)
+  const stopEl = document.getElementById('stop-label');
+  if (activeLabelStop && frameIndex - labelStartFrame < LABEL_SHOW_FRAMES) {
+    const age = frameIndex - labelStartFrame;
+    let opacity;
+    if (age < LABEL_FADE_FRAMES) opacity = age / LABEL_FADE_FRAMES;
+    else if (age > LABEL_SHOW_FRAMES - LABEL_FADE_FRAMES) opacity = (LABEL_SHOW_FRAMES - age) / LABEL_FADE_FRAMES;
+    else opacity = 1;
+
+    const isEnd = activeLabelStop._isEnd;
+    // FINISH label: fade in but don't fade out (stays until video ends)
+    if (isEnd && age >= LABEL_FADE_FRAMES) opacity = 1;
+    document.querySelector('#stop-label .day').textContent = isEnd ? 'FINISH' : '';
+    document.querySelector('#stop-label .name').textContent = activeLabelStop.name || '';
+    document.querySelector('#stop-label .ele').textContent = Math.round(activeLabelStop.ele) + ' m';
+    stopEl.style.opacity = opacity;
+    if (opacity > 0.3) routeEl.style.opacity = 0;
+  } else {
+    stopEl.style.opacity = 0;
+  }
+
+  // HUD
+  document.getElementById('v-dist').textContent = (cur.dist / 1000).toFixed(1) + ' km';
+  document.getElementById('v-ele').textContent  = Math.round(cur.ele) + ' m';
+  if (cur.time && pts[0].time) {
+    const day = Math.floor((new Date(cur.time) - new Date(pts[0].time)) / 86400000) + 1;
+    document.getElementById('v-day').textContent = day;
+  }
+  const range = trackData.bounds.maxEle - trackData.bounds.minEle;
+  const pct = range > 0 ? ((cur.ele - trackData.bounds.minEle) / range) * 100 : 0;
+  updateEleBar(pct, cur.ele);
+
+  // Fade to black in the last 2s (60 frames)
+  const FADE_OUT_FRAMES = 60;
+  const framesLeft = totalFrames - frameIndex - 1;
+  if (framesLeft < FADE_OUT_FRAMES) {
+    document.getElementById('fade-black').style.opacity = 1 - framesLeft / FADE_OUT_FRAMES;
+  } else {
+    document.getElementById('fade-black').style.opacity = 0;
+  }
+
+  waitForTiles();
+};
+
+/* ==================== helpers ==================== */
+function updateEleBar(pct, ele) {
+  document.getElementById('ele-fill').style.height = pct + '%';
+  const bar = document.getElementById('ele-bar');
+  const rect = bar.getBoundingClientRect();
+  const tagY = rect.top + rect.height * (1 - pct / 100);
+  document.getElementById('ele-tag').style.top = tagY + 'px';
+  document.getElementById('ele-tag').textContent = Math.round(ele) + ' m';
+}
+function waitForTiles() {
+  // Two-pass "render to fixed point":
+  //   Pass 1: wait until loaded() && areTilesLoaded()
+  //   Pass 2: triggerRepaint() — forces MapLibre to re-evaluate tile coverage,
+  //           which may surface new LOD upgrade requests; wait for those too
+  //   Pass 3: 2× requestAnimationFrame so GPU has committed
+  // This catches the case where the first idle fires before MapLibre realizes it
+  // needs higher-LOD tiles (which causes the "blurry → sharp" pop mid-recording).
+  let resolved = false;
+  const finish = () => { if (!resolved) { resolved = true; window.frameReady = true; } };
+
+  let attempts = 0;
+  const MAX_ATTEMPTS = 30;
+
+  const passDone = () => {
+    if (resolved) return;
+    requestAnimationFrame(() => requestAnimationFrame(finish));
+  };
+
+  const pass2 = () => {
+    if (resolved) return;
+    if (map.loaded() && map.areTilesLoaded()) { passDone(); return; }
+    if (++attempts >= MAX_ATTEMPTS) { finish(); return; }
+    map.once('idle', pass2);
+  };
+
+  const pass1 = () => {
+    if (resolved) return;
+    if (map.loaded() && map.areTilesLoaded()) {
+      // First-pass stable. Force re-evaluation in case LOD upgrade is pending.
+      map.triggerRepaint();
+      // Give MapLibre one frame to issue any new tile requests
+      requestAnimationFrame(() => {
+        if (map.loaded() && map.areTilesLoaded()) {
+          // No new requests fired — we're truly stable
+          passDone();
+        } else {
+          map.once('idle', pass2);
+        }
+      });
+      return;
+    }
+    if (++attempts >= MAX_ATTEMPTS) { finish(); return; }
+    map.once('idle', pass1);
+  };
+
+  pass1();
+  setTimeout(finish, 12000);
+}
+function emptyLine()  { return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }; }
+function emptyPoint() { return { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] } }; }
+
+function __pickSourceCache(style, sourceId) {
+  if (!style) return null;
+  return style._sourceCaches?.[sourceId]
+    || style._otherSourceCaches?.[sourceId]
+    || style._symbolSourceCaches?.[sourceId]
+    || style.sourceCaches?.[sourceId]
+    || style._mergedSourceCaches?.[sourceId]
+    || style._mergedOtherSourceCaches?.[sourceId]
+    || null;
+}
+
+function __normalizeTileID(raw, fallbackId) {
+  if (!raw) return { rawId: String(fallbackId ?? '') };
+
+  const canonical = raw.canonical || raw.canonicalID || raw.canonicalId || null;
+  const overscaledZ = raw.overscaledZ ?? raw.z ?? canonical?.z ?? null;
+  const wrap = raw.wrap ?? 0;
+  const x = canonical?.x ?? raw.x ?? null;
+  const y = canonical?.y ?? raw.y ?? null;
+  const z = canonical?.z ?? raw.z ?? null;
+  const key = z != null && x != null && y != null ? `${z}/${x}/${y}` : String(fallbackId ?? raw.key ?? '');
+
+  return {
+    rawId: String(fallbackId ?? raw.key ?? key),
+    key,
+    x,
+    y,
+    z,
+    overscaledZ,
+    wrap,
+  };
+}
+
+function __extractRenderableTileIds(cache) {
+  if (!cache) return { ids: [], source: 'none' };
+
+  if (typeof cache.getRenderableIds === 'function') {
+    try { return { ids: cache.getRenderableIds().map(String), source: 'getRenderableIds' }; } catch (_) {}
+  }
+
+  if (typeof cache.getVisibleCoordinates === 'function') {
+    try {
+      return {
+        ids: cache.getVisibleCoordinates().map(coord => String(coord.key ?? coord.id ?? coord)),
+        source: 'getVisibleCoordinates',
+      };
+    } catch (_) {}
+  }
+
+  if (Array.isArray(cache.currentlyRenderingTiles)) {
+    return { ids: cache.currentlyRenderingTiles.map(String), source: 'currentlyRenderingTiles' };
+  }
+
+  return { ids: [], source: 'none' };
+}
+
+window.__getTileDebugState = function () {
+  const mapInstance = window.__mapInstance;
+  if (!mapInstance?.style) return null;
+
+  const style = mapInstance.style;
+  const result = {
+    center: mapInstance.getCenter(),
+    zoom: mapInstance.getZoom(),
+    pitch: mapInstance.getPitch(),
+    bearing: mapInstance.getBearing(),
+    sources: {},
+  };
+
+  for (const sourceId of ['satellite', 'satellite-trail', 'terrain-src']) {
+    const cache = __pickSourceCache(style, sourceId);
+    if (!cache) {
+      result.sources[sourceId] = { missing: true };
+      continue;
+    }
+
+    const { ids: renderableIds, source: idSource } = __extractRenderableTileIds(cache);
+    const visibleSet = new Set(renderableIds);
+    const tiles = cache._tiles || cache.tiles || {};
+    const tileEntries = [];
+
+    for (const [tileId, tile] of Object.entries(tiles)) {
+      const id = __normalizeTileID(tile?.tileID || tile?.tileId || tile?._tileID, tileId);
+      // Only fall back to "all tiles renderable" when we had no reliable API
+      // for renderable ids. If the API returned an empty list, the source is
+      // genuinely rendering nothing (e.g., a swapped-out DEM cache still holds
+      // stale tiles in _tiles), so we must not flag them as renderable.
+      const isRenderable = idSource === 'none'
+        ? true
+        : visibleSet.has(String(tileId));
+      tileEntries.push({
+        ...id,
+        isRenderable,
+        state: tile?.state ?? null,
+        uses: tile?.uses ?? null,
+        tileZoom: tile?.tileZoom ?? null,
+        hasData: typeof tile?.hasData === 'function' ? !!tile.hasData() : null,
+      });
+    }
+
+    tileEntries.sort((a, b) => {
+      if (a.isRenderable !== b.isRenderable) return a.isRenderable ? -1 : 1;
+      if ((a.overscaledZ ?? -1) !== (b.overscaledZ ?? -1)) return (a.overscaledZ ?? -1) - (b.overscaledZ ?? -1);
+      return String(a.key).localeCompare(String(b.key));
+    });
+
+    result.sources[sourceId] = {
+      renderableIds: [...visibleSet].sort(),
+      renderableTiles: tileEntries.filter(t => t.isRenderable),
+      cachedTiles: tileEntries,
+      cacheProps: Object.getOwnPropertyNames(cache).filter(k => k.startsWith('_')).slice(0, 40),
+    };
+  }
+
+  return result;
+};
+
+window.__getCanvasDebugMetrics = function () {
+  const mapInstance = window.__mapInstance;
+  const canvas = mapInstance?.getCanvas?.();
+  if (!canvas) return null;
+
+  const sampleW = 96;
+  const sampleH = 54;
+  const sampleCanvas = document.createElement('canvas');
+  sampleCanvas.width = sampleW;
+  sampleCanvas.height = sampleH;
+
+  const ctx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  try {
+    ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, sampleW, sampleH);
+    const rgba = ctx.getImageData(0, 0, sampleW, sampleH).data;
+    const gray = new Float64Array(sampleW * sampleH);
+    let sum = 0;
+
+    for (let i = 0, p = 0; i < gray.length; i++, p += 4) {
+      const y = rgba[p] * 0.299 + rgba[p + 1] * 0.587 + rgba[p + 2] * 0.114;
+      gray[i] = y;
+      sum += y;
+    }
+
+    const mean = sum / gray.length;
+    let varSum = 0;
+    let lapSum = 0;
+    let lapSqSum = 0;
+    let lapCount = 0;
+
+    for (let y = 0; y < sampleH; y++) {
+      for (let x = 0; x < sampleW; x++) {
+        const idx = y * sampleW + x;
+        const g = gray[idx];
+        const d = g - mean;
+        varSum += d * d;
+
+        if (x === 0 || y === 0 || x === sampleW - 1 || y === sampleH - 1) continue;
+        const lap = 4 * g - gray[idx - 1] - gray[idx + 1] - gray[idx - sampleW] - gray[idx + sampleW];
+        lapSum += lap;
+        lapSqSum += lap * lap;
+        lapCount++;
+      }
+    }
+
+    const variance = varSum / gray.length;
+    const lapMean = lapCount > 0 ? lapSum / lapCount : 0;
+    const lapVariance = lapCount > 0 ? lapSqSum / lapCount - lapMean * lapMean : 0;
+
+    return {
+      meanLuma: mean,
+      lumaVariance: variance,
+      laplacianVariance: lapVariance,
+      sampleWidth: sampleW,
+      sampleHeight: sampleH,
+    };
+  } catch (error) {
+    return {
+      error: String(error?.message || error),
+    };
+  }
+};
+
+/**
+ * Allocate movement frames across segments exactly once so the trail line/HUD
+ * and the camera use the SAME stop timing.
+ */
+function allocateSegmentFrames(segDists, totalFrames) {
+  const totalDist = segDists.reduce((sum, d) => sum + d, 0);
+  if (totalFrames <= 0 || totalDist <= 0) return new Int32Array(segDists.length);
+
+  const frames = new Int32Array(segDists.length);
+  const remainders = [];
+  let used = 0;
+
+  for (let i = 0; i < segDists.length; i++) {
+    const exact = segDists[i] / totalDist * totalFrames;
+    const base = Math.floor(exact);
+    frames[i] = base;
+    used += base;
+    remainders.push({ i, frac: exact - base });
+  }
+
+  remainders.sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < totalFrames - used; k++) {
+    frames[remainders[k].i]++;
+  }
+
+  return frames;
+}
+
+/**
+ * Distance-based trail schedule with dwell pauses at overnight stops.
+ * Short breaks are compressed (no distance = no frames).
+ * Overnight stops get DWELL_FRAMES of pause.
+ */
+// Keep this in sync with buildEasedPositions in camera/smooth-constant.js.
+// Localized ease: first/last EASE_FRAMES of each segment smoothstep-ramp
+// to cruise speed, the middle is linear. This eliminates the dwell-boundary
+// velocity discontinuity without speeding up cruise motion.
+const __EASE_FRAMES = 60;
+function __buildEasedPositions(segFrames) {
+  const N = segFrames;
+  const K = Math.min(__EASE_FRAMES, Math.max(0, Math.floor((N - 1) / 3)));
+  const pos = new Float64Array(N);
+  if (N <= 1) { pos[0] = 0; return pos; }
+  const totalDist = Math.max(1, N - K);
+  let d = 0;
+  for (let sf = 0; sf < N; sf++) {
+    let v;
+    if (K > 1 && sf < K) {
+      const x = sf / K;
+      v = x * x * (3 - 2 * x);
+    } else if (K > 1 && sf >= N - K) {
+      const x = (N - sf) / K;
+      v = x * x * (3 - 2 * x);
+    } else {
+      v = 1;
+    }
+    d += v;
+    pos[sf] = d / totalDist;
+  }
+  return pos;
+}
+
+function buildTrailSchedule(pts, stops, trailFrames) {
+  const sorted = [...stops].sort((a, b) => a.index - b.index);
+  const FINISH_FRAMES = LABEL_SHOW_FRAMES; // hold at end for FINISH label
+  const dwellTotal = sorted.length * DWELL_FRAMES + FINISH_FRAMES;
+  const moveFrames = trailFrames - dwellTotal;
+  const breakIdxs = [0, ...sorted.map(s => s.index), pts.length - 1];
+  const segDists = [];
+  for (let seg = 0; seg < breakIdxs.length - 1; seg++) {
+    segDists.push(pts[breakIdxs[seg + 1]].dist - pts[breakIdxs[seg]].dist);
+  }
+  const segFrames = allocateSegmentFrames(segDists, moveFrames);
+
+  const map = new Int32Array(trailFrames);      // integer index (for trail line, HUD)
+  const dwell = new Float32Array(trailFrames);  // 0 = moving, 0..1 = progress through dwell
+  let f = 0;
+
+  for (let seg = 0; seg < breakIdxs.length - 1; seg++) {
+    const si = breakIdxs[seg], ei = breakIdxs[seg + 1];
+    const segDist = segDists[seg];
+    const framesThisSeg = segFrames[seg];
+    const easedPos = __buildEasedPositions(framesThisSeg);
+
+    for (let sf = 0; sf < framesThisSeg && f < trailFrames; sf++, f++) {
+      const t = easedPos[sf];
+      const target = pts[si].dist + segDist * t;
+      let idx = si;
+      for (let i = si; i <= ei; i++) {
+        if (pts[i].dist >= target) { idx = i; break; }
+      }
+      map[f] = idx;
+    }
+
+    if (seg < breakIdxs.length - 2) {
+      for (let d = 0; d < DWELL_FRAMES && f < trailFrames; d++, f++) {
+        map[f] = ei;
+        dwell[f] = d / (DWELL_FRAMES - 1); // 0→1 through the night
+      }
+    }
+  }
+
+  // Finish dwell at end point
+  const endIdx = pts.length - 1;
+  for (let d = 0; d < FINISH_FRAMES && f < trailFrames; d++, f++) {
+    map[f] = endIdx;
+  }
+
+  while (f < trailFrames) { map[f++] = endIdx; }
+  return { map, dwell, breakIdxs, segFrames };
+}
+
+init();
+</script>
+</body>
+</html>
