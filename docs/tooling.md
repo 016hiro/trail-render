@@ -18,9 +18,9 @@ Use when:
 
 Run:
 ```sh
-MAPTILER_KEY=... npm run detect:lod activity_580930440.gpx
+MAPTILER_KEY=... bun run detect:lod activity_580930440.gpx
 # optional: scan only a window
-MAPTILER_KEY=... npm run detect:lod activity_580930440.gpx --start-frame 720 --end-frame 780
+MAPTILER_KEY=... bun run detect:lod activity_580930440.gpx --start-frame 720 --end-frame 780
 ```
 
 Output is large (15+ MB for a full track). Read `events`, `suspiciousFrames`,
@@ -47,7 +47,7 @@ Use when:
 
 Run:
 ```sh
-MAPTILER_KEY=... node src/jitter-metric.js activity_580930440.gpx
+MAPTILER_KEY=... bun src/jitter-metric.js activity_580930440.gpx
 ```
 
 Writes `output/jitter_report.json`. Lower is better on every metric.
@@ -65,13 +65,13 @@ Use when:
 
 Run:
 ```sh
-node src/camera-sweep.js activity_580930440.gpx
+bun src/camera-sweep.js activity_580930440.gpx
 ```
 
 Writes `output/sweep_results.json`. The *result* of this tool is a set of
 proposed constants to paste into `smooth-constant.js` — it does not modify
 the code. Always validate a proposal with `jitter-metric.js` (browser math)
-and then a full render + `npm run regress`.
+and then a full render + `bun run regress`.
 
 ## `src/benchmark.js` — "how fast is the capture pipeline"
 
@@ -85,14 +85,14 @@ Use when:
 
 Run:
 ```sh
-MAPTILER_KEY=... node src/benchmark.js activity_580930440.gpx
+MAPTILER_KEY=... bun src/benchmark.js activity_580930440.gpx
 ```
 
 No report file — output is printed directly. Not part of any CI path.
 
 ## Relationship to the regression check
 
-`scripts/regress.js` (invoked by `npm run regress`) is the *end-to-end*
+`scripts/regress.js` (invoked by `bun run regress`) is the *end-to-end*
 guardrail — it runs on the final MP4 and has a committed baseline. The four
 tools above are *investigation* aids: you reach for them when regress.js
 fires, or when you are making an intentional change and want to understand

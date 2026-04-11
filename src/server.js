@@ -1,8 +1,7 @@
 import express from 'express';
-import { fileURLToPath } from 'url';
-import path from 'path';
+import path from 'node:path';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dir;
 
 export function startServer(trackData, apiKey, port = 3456, introFrames = 360, opts = {}) {
   const app = express();

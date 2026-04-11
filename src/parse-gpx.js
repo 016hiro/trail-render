@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 
 export function parseGPX(filePath, targetPoints = 3000) {
   const xml = readFileSync(filePath, 'utf-8');

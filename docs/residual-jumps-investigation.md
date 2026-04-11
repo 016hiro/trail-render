@@ -73,8 +73,8 @@ Browser-side helpers live in `public/index.html`:
 Runner usage:
 
 ```sh
-bun run detect:lod                             # full-range scan
-node src/detect-lod-jumps.js \
+bun run detect:lod activity_580930440.gpx      # full-range scan
+bun src/detect-lod-jumps.js activity_580930440.gpx \
   --start-frame 270 --end-frame 820 \          # narrow window
   --output output/lod_narrow.json
 ```
@@ -339,7 +339,7 @@ file is the current source of truth.
 
 ```sh
 # Render
-node src/index.js --output output/trail_v_final.mp4
+MAPTILER_KEY=... bun src/index.js activity_580930440.gpx --output output/trail_v_final.mp4
 
 # Peak extraction (for any rendered file)
 ffmpeg -i output/trail_v_final.mp4 \
@@ -347,8 +347,8 @@ ffmpeg -i output/trail_v_final.mp4 \
   -an -f null -
 
 # Full detector scan
-bun run detect:lod
-node -e "const r=JSON.parse(require('fs').readFileSync('output/lod_report.json','utf8'));
+MAPTILER_KEY=... bun run detect:lod activity_580930440.gpx
+bun -e "const r=JSON.parse(require('fs').readFileSync('output/lod_report.json','utf8'));
   console.log('events:', r.events.length,
               ' upgrades:', r.events.filter(e=>e.upgrades.length).length,
               ' downgrades:', r.events.filter(e=>e.downgrades.length).length);"

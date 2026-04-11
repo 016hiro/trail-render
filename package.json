@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "preview": "node src/index.js --preview",
-    "detect:lod": "node src/detect-lod-jumps.js",
-    "regress": "node scripts/regress.js",
-    "test": "node --test test/*.test.js",
-    "test:e2e": "node --test test/e2e/*.test.js"
+    "start": "bun src/index.js",
+    "preview": "bun src/index.js --preview",
+    "detect:lod": "bun src/detect-lod-jumps.js",
+    "regress": "bun scripts/regress.js",
+    "test": "bun test test/unit",
+    "test:e2e": "bun test test/e2e"
   },
   "dependencies": {
     "express": "^4.21.0",

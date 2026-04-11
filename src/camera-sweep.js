@@ -3,10 +3,10 @@
  * Pure math — no browser needed. Tests many parameter combos in seconds.
  */
 import { parseGPX } from './parse-gpx.js';
-import fs from 'fs';
+import fs from 'node:fs';
 
 const gpxFile = process.argv[2];
-if (!gpxFile) { console.error('Usage: node src/camera-sweep.js <path/to/track.gpx>'); process.exit(1); }
+if (!gpxFile) { console.error('Usage: bun src/camera-sweep.js <path/to/track.gpx>'); process.exit(1); }
 const data = parseGPX(gpxFile);
 const pts = data.points;
 const stops = data.stops;

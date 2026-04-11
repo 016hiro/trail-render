@@ -3,9 +3,9 @@ import { startServer } from './server.js';
 import { captureFrames } from './capture.js';
 import { computeRenderConfig, INTRO_SEC } from './render-config.js';
 import { chromium } from 'playwright';
-import path from 'path';
-import fs from 'fs/promises';
-import { execSync } from 'child_process';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 
 const API_KEY = process.env.MAPTILER_KEY;
 if (!API_KEY) {
@@ -32,7 +32,7 @@ async function main() {
 
   const gpxFile = args.find(a => a.endsWith('.gpx'));
   if (!gpxFile) {
-    console.error('Usage: npm start <path/to/track.gpx> [--fps 30] [--width 1920] [--height 1080] [--output output/trail.mp4] [--preview] [--duration SECS] [--title NAME] [--end NAME] [--name TRAIL_NAME]');
+    console.error('Usage: bun start <path/to/track.gpx> [--fps 30] [--width 1920] [--height 1080] [--output output/trail.mp4] [--preview] [--duration SECS] [--title NAME] [--end NAME] [--name TRAIL_NAME]');
     process.exit(1);
   }
   if (!(await fileExists(gpxFile))) {
@@ -149,7 +149,7 @@ async function preflight() {
     const exe = chromium.executablePath();
     await fs.access(exe);
   } catch {
-    console.error('Playwright chromium not installed. Run: npx playwright install chromium');
+    console.error('Playwright chromium not installed. Run: bunx playwright install chromium');
     process.exit(1);
   }
 }

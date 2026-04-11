@@ -1,6 +1,6 @@
-import fs from 'fs';
-import fsp from 'fs/promises';
-import path from 'path';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { chromium } from 'playwright';
 
 import { parseGPX } from './parse-gpx.js';
@@ -49,7 +49,7 @@ async function main() {
   const args = process.argv.slice(2);
   const gpxFile = args.find((arg) => arg.endsWith('.gpx'));
   if (!gpxFile) {
-    console.error('Usage: node src/detect-lod-jumps.js <path/to/track.gpx> [--fps 30] [--port 3456] [--output output/lod_report.json] [--start-frame N] [--end-frame N]');
+    console.error('Usage: bun src/detect-lod-jumps.js <path/to/track.gpx> [--fps 30] [--port 3456] [--output output/lod_report.json] [--start-frame N] [--end-frame N]');
     process.exit(1);
   }
   if (!fs.existsSync(gpxFile)) {

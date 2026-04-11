@@ -15,10 +15,10 @@
 import { chromium } from 'playwright';
 import { startServer } from './server.js';
 import { parseGPX } from './parse-gpx.js';
-import fs from 'fs';
+import fs from 'node:fs';
 
 const gpxFile = process.argv[2];
-if (!gpxFile) { console.error('Usage: node src/jitter-metric.js <path/to/track.gpx>'); process.exit(1); }
+if (!gpxFile) { console.error('Usage: bun src/jitter-metric.js <path/to/track.gpx>'); process.exit(1); }
 
 async function run() {
   // Parse and enrich

@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
-import { execSync } from 'child_process';
-import path from 'path';
-import fs from 'fs/promises';
+import { execSync } from 'node:child_process';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 
 export async function captureFrames({
   port,

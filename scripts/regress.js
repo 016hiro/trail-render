@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Regression check for trail-render output videos.
 //
 // Runs ffmpeg's scene_score filter on a rendered video, buckets the per-frame
@@ -10,17 +10,15 @@
 // render before merging.
 //
 // Usage:
-//   node scripts/regress.js <video.mp4>                       # fail if peaks>=0.08 > 0 or >=0.05 > baseline+2
-//   node scripts/regress.js <video.mp4> --update-baseline     # overwrite baseline with current metrics
-//   node scripts/regress.js <video.mp4> --intro-sec 9 --fps 30
+//   bun scripts/regress.js <video.mp4>                       # fail if peaks>=0.08 > 0 or >=0.05 > baseline+2
+//   bun scripts/regress.js <video.mp4> --update-baseline     # overwrite baseline with current metrics
+//   bun scripts/regress.js <video.mp4> --intro-sec 9 --fps 30
 
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BASELINE_FILE = path.join(__dirname, '..', 'docs', 'regress-baseline.json');
+const BASELINE_FILE = path.join(import.meta.dir, '..', 'docs', 'regress-baseline.json');
 
 function flag(args, name, fallback = null) {
   const i = args.indexOf(name);
@@ -84,7 +82,7 @@ async function main() {
   const args = process.argv.slice(2);
   const videoPath = args.find((a) => !a.startsWith('--'));
   if (!videoPath) {
-    console.error('Usage: node scripts/regress.js <video.mp4> [--intro-sec 9] [--fps 30] [--update-baseline]');
+    console.error('Usage: bun scripts/regress.js <video.mp4> [--intro-sec 9] [--fps 30] [--update-baseline]');
     process.exit(1);
   }
   if (!fs.existsSync(videoPath)) {
@@ -148,6 +146,6 @@ async function main() {
   console.log('\nNo regression.');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.main) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }

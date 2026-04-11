@@ -1,8 +1,8 @@
 import { parseGPX } from './parse-gpx.js';
 import { startServer } from './server.js';
 import { chromium } from 'playwright';
-import path from 'path';
-import fs from 'fs/promises';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 
 const API_KEY = process.env.MAPTILER_KEY;
 if (!API_KEY) {
@@ -14,7 +14,7 @@ const TOTAL_FRAMES = 1800;
 
 async function main() {
   const gpxFile = process.argv[2];
-  if (!gpxFile) { console.error('Usage: node src/benchmark.js <path/to/track.gpx>'); process.exit(1); }
+  if (!gpxFile) { console.error('Usage: bun src/benchmark.js <path/to/track.gpx>'); process.exit(1); }
   const trackData = parseGPX(gpxFile);
   const server = await startServer(trackData, API_KEY, 3456);
 

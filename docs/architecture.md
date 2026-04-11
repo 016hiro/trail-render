@@ -120,7 +120,7 @@ The only strategy currently shipped is `smooth-constant`:
 
 All tunables are at the top of `public/camera/smooth-constant.js`. Changing
 them should be validated with `src/jitter-metric.js` (for numeric smoothness)
-and `npm run regress` (for the downstream scene_score baseline).
+and `bun run regress` (for the downstream scene_score baseline).
 
 ## Where each concern lives
 
