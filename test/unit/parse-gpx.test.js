@@ -37,7 +37,6 @@ test('distances are monotonic non-decreasing', () => {
 });
 
 test('downsampling respects targetPoints budget', () => {
-  // Demo track has ~33k raw points; target 500 should land roughly 400–600
   const data = parseGPX(DEMO_GPX, 500);
   expect(data.points.length).toBeLessThanOrEqual(600);
   expect(data.points.length).toBeGreaterThanOrEqual(400);
