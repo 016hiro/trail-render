@@ -56,6 +56,8 @@ Common flags:
 | `--width N` / `--height N` | 1920 / 1080 | output resolution |
 | `--output PATH` | `output/trail.mp4` | final MP4 path |
 | `--duration SECS` | auto | override total length (auto = intro 9s + 0.5 s/km trail + 2 s/stop + 4 s finish) |
+| `--pace SEC_PER_KM` | 0.5 | trail pacing — lower = faster flyover |
+| `--intro SECS` | 9 | intro zoom duration |
 | `--title NAME` | (reverse geocoded) | start-point label |
 | `--end NAME` | (reverse geocoded) | end-point label |
 | `--name TRAIL_NAME` | (none) | big trail title shown during intro |

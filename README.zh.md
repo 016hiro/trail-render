@@ -53,6 +53,8 @@ MAPTILER_KEY=... bun start path/to/my-hike.gpx --output output/my-hike.mp4
 | `--width N` / `--height N` | 1920 / 1080 | 输出分辨率 |
 | `--output PATH` | `output/trail.mp4` | 最终 MP4 路径 |
 | `--duration SECS` | auto | 覆盖总时长（自动 = 9s intro + 0.5s/km trail + 2s/停留点 + 4s finish） |
+| `--pace SEC_PER_KM` | 0.5 | trail 节奏 —— 值越小飞得越快 |
+| `--intro SECS` | 9 | intro 缩放时长 |
 | `--title NAME` | 反向地理编码 | 起点标签 |
 | `--end NAME` | 反向地理编码 | 终点标签 |
 | `--name TRAIL_NAME` | 无 | intro 阶段显示的大标题 |

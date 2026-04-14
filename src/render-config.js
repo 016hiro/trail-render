@@ -12,12 +12,19 @@ export const DWELL_SEC = 2;       // seconds held at each overnight stop
 export const MIN_TRAIL_SEC = 20;  // floor for very short tracks
 export const FINISH_SEC = 4;      // hold at the end for the finish label
 
-export function computeRenderConfig(trackData, fps) {
+export function computeRenderConfig(trackData, fps, overrides = {}) {
+  const introSec    = overrides.introSec    ?? INTRO_SEC;
+  const trailPace   = overrides.trailPace   ?? TRAIL_PACE;
+  const dwellSec    = overrides.dwellSec    ?? DWELL_SEC;
+  const minTrailSec = overrides.minTrailSec ?? MIN_TRAIL_SEC;
+  const finishSec   = overrides.finishSec   ?? FINISH_SEC;
+
   const distKm = trackData.totalDistance / 1000;
-  const autoTrailSec = Math.max(MIN_TRAIL_SEC, distKm * TRAIL_PACE);
-  const autoDwellSec = trackData.stops.length * DWELL_SEC;
-  const duration = Math.ceil(INTRO_SEC + autoTrailSec + autoDwellSec + FINISH_SEC);
+  const autoTrailSec = Math.max(minTrailSec, distKm * trailPace);
+  const autoDwellSec = trackData.stops.length * dwellSec;
+  const duration = Math.ceil(introSec + autoTrailSec + autoDwellSec + finishSec);
   const totalFrames = duration * fps;
-  const introFrames = INTRO_SEC * fps;
-  return { duration, totalFrames, introFrames, autoTrailSec, autoDwellSec };
+  const introFrames = Math.round(introSec * fps);
+  const finishFrames = Math.round(finishSec * fps);
+  return { duration, totalFrames, introFrames, finishFrames, autoTrailSec, autoDwellSec };
 }

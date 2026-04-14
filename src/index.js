@@ -32,7 +32,10 @@ async function main() {
 
   const gpxFile = args.find(a => a.endsWith('.gpx'));
   if (!gpxFile) {
-    console.error('Usage: bun start <path/to/track.gpx> [--fps 30] [--width 1920] [--height 1080] [--output output/trail.mp4] [--preview] [--duration SECS] [--title NAME] [--end NAME] [--name TRAIL_NAME]');
+    console.error('Usage: bun start <path/to/track.gpx>\n'
+      + '  [--fps 30] [--width 1920] [--height 1080] [--output output/trail.mp4] [--preview]\n'
+      + '  [--duration SECS] [--title NAME] [--end NAME] [--name TRAIL_NAME]\n'
+      + '  [--pace SEC_PER_KM] [--intro SECS]');
     process.exit(1);
   }
   if (!(await fileExists(gpxFile))) {
@@ -109,12 +112,24 @@ async function main() {
   for (const s of trackData.stops) console.log(`  Stop: ${s.name} (${Math.round(s.ele)}m)`);
   console.log(`  POIs: ${trackData.pois.length} (${trackData.pois.filter(p => p.type === 'peak').length} peaks, ${trackData.pois.filter(p => p.type === 'lake').length} lakes, ${trackData.pois.filter(p => p.type === 'pass').length} passes)`);
 
-  // Auto-compute duration from distance + stops, or use --duration override
-  const auto = computeRenderConfig(trackData, fps);
+  // Auto-compute duration from distance + stops, or use --duration override.
+  // --pace and --intro feed into the auto calc. Note: --dwell / --finish are
+  // deliberately not exposed — their per-stop and end-hold frame counts live
+  // inside the browser camera strategy (public/camera/*.js) and changing them
+  // only on the Node side would desync the two pipelines.
+  const overrides = {};
+  const paceFlag = parseFloatFlag(args, '--pace');
+  if (paceFlag !== null) overrides.trailPace = paceFlag;
+  const introFlag = parseFloatFlag(args, '--intro');
+  if (introFlag !== null) overrides.introSec = introFlag;
+
+  const auto = computeRenderConfig(trackData, fps, overrides);
   const duration = parseInt(flag(args, '--duration') || String(auto.duration));
   const totalFrames = duration * fps;
   const introFrames = auto.introFrames;
-  console.log(`  Video: ${duration}s @ ${fps}fps = ${totalFrames} frames (auto: ${auto.duration}s = ${INTRO_SEC}s intro + ${auto.autoTrailSec.toFixed(0)}s trail + ${auto.autoDwellSec}s dwell)`);
+  const finishFrames = auto.finishFrames;
+  const introSec = overrides.introSec ?? INTRO_SEC;
+  console.log(`  Video: ${duration}s @ ${fps}fps = ${totalFrames} frames (auto: ${auto.duration}s = ${introSec}s intro + ${auto.autoTrailSec.toFixed(0)}s trail + ${auto.autoDwellSec}s dwell)`);
 
   // Pass introFrames + optional trail name to frontend via config
   const server = await startServer(trackData, API_KEY, port, introFrames, {
@@ -127,7 +142,13 @@ async function main() {
   }
 
   try {
-    await captureFrames({ port, outputDir: path.dirname(path.resolve(outFile)), totalFrames, fps, width, height, outputFile: path.resolve(outFile) });
+    await captureFrames({
+      port,
+      outputDir: path.dirname(path.resolve(outFile)),
+      totalFrames, fps, width, height,
+      outputFile: path.resolve(outFile),
+      introFrames, finishFrames,
+    });
   } finally {
     server.close();
   }
@@ -139,6 +160,17 @@ async function main() {
 function flag(args, name) {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
+}
+
+function parseFloatFlag(args, name) {
+  const v = flag(args, name);
+  if (v === null) return null;
+  const n = parseFloat(v);
+  if (!Number.isFinite(n) || n < 0) {
+    console.error(`Invalid value for ${name}: ${v}`);
+    process.exit(1);
+  }
+  return n;
 }
 
 async function preflight() {

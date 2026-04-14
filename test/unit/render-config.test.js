@@ -60,3 +60,22 @@ test('exported constants match expectations', () => {
   expect(MIN_TRAIL_SEC).toBe(20);
   expect(FINISH_SEC).toBe(4);
 });
+
+test('overrides: --pace changes trail duration', () => {
+  const base = computeRenderConfig(track(100, 0), 30);
+  const slow = computeRenderConfig(track(100, 0), 30, { trailPace: 1.0 });
+  expect(slow.autoTrailSec).toBe(100);
+  expect(slow.duration).toBe(base.duration + 50); // +50s of trail
+});
+
+test('overrides: --intro changes introFrames + duration', () => {
+  const base = computeRenderConfig(track(100, 0), 30);
+  const longer = computeRenderConfig(track(100, 0), 30, { introSec: 15 });
+  expect(longer.introFrames).toBe(15 * 30);
+  expect(longer.duration).toBe(base.duration + 6); // +6s intro
+});
+
+test('finishFrames derives from finishSec × fps', () => {
+  const cfg = computeRenderConfig(track(100, 0), 30);
+  expect(cfg.finishFrames).toBe(FINISH_SEC * 30);
+});
