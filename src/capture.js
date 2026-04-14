@@ -3,6 +3,12 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 
+function fmtMMSS(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
 export async function captureFrames({
   port,
   outputDir,
@@ -11,6 +17,8 @@ export async function captureFrames({
   width,
   height,
   outputFile,
+  introFrames = 0,
+  finishFrames = 0,
 }) {
   const framesDir = path.join(outputDir, 'frames');
   await fs.mkdir(framesDir, { recursive: true });
@@ -75,6 +83,9 @@ export async function captureFrames({
 
   console.log(`Capturing ${totalFrames} frames at ${width}x${height}...`);
   const t0 = Date.now();
+  const trailEnd = totalFrames - finishFrames;
+  const isTTY = Boolean(process.stderr.isTTY);
+  const progressEvery = isTTY ? 1 : 60;
 
   for (let i = 0; i < totalFrames; i++) {
     await page.evaluate(
@@ -89,14 +100,18 @@ export async function captureFrames({
       quality: 92,
     });
 
-    if (i % 60 === 0 || i === totalFrames - 1) {
-      const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
-      const pct = ((i / totalFrames) * 100).toFixed(1);
+    if (i % progressEvery === 0 || i === totalFrames - 1) {
+      const phase = i < introFrames ? 'intro ' : (i >= trailEnd ? 'finish' : 'trail ');
+      const pct = ((i / totalFrames) * 100).toFixed(1).padStart(5);
+      const elapsed = fmtMMSS((Date.now() - t0) / 1000);
       const perFrame = (Date.now() - t0) / (i + 1);
-      const eta = (((totalFrames - i - 1) * perFrame) / 1000).toFixed(0);
-      console.log(`  ${pct}%  frame ${i}/${totalFrames}  (${elapsed}s elapsed, ~${eta}s left)`);
+      const eta = fmtMMSS(((totalFrames - i - 1) * perFrame) / 1000);
+      const line = `  [${phase}] ${pct}%  ${String(i).padStart(5)}/${totalFrames}  ${elapsed} elapsed · ETA ${eta}`;
+      if (isTTY) process.stderr.write('\r' + line + '\x1b[K');
+      else console.log(line);
     }
   }
+  if (isTTY) process.stderr.write('\n');
 
   await browser.close();
   console.log('Browser closed.');
