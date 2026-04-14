@@ -96,6 +96,11 @@ directory so `bun test test/unit` ignores it, and it **skips automatically
 when `MAPTILER_KEY` is unset** (via `test.skipIf`) — CI / cold clones won't
 fail on it.
 
+GitHub Actions (`.github/workflows/test.yml`) runs the unit suite on every
+push and PR. The e2e job is gated behind a manual `workflow_dispatch` with
+a `run_e2e` toggle, so it only consumes the `MAPTILER_KEY` secret when
+explicitly requested.
+
 ## Regression check
 
 Camera and LOD changes are validated against an ffmpeg `scene_score` baseline

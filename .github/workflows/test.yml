@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Also run e2e (requires MAPTILER_KEY secret)'
+        type: boolean
+        default: false
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3'
+      - run: bun install --frozen-lockfile
+      - run: bun test test/unit
+
+  e2e:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
+    runs-on: ubuntu-latest
+    needs: unit
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun test test/e2e
+        env:
+          MAPTILER_KEY: ${{ secrets.MAPTILER_KEY }}
