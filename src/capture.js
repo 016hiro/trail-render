@@ -56,7 +56,10 @@ export async function captureFrames({
         console.log(`  prewarm ${intPct}%`);
         lastPct = intPct;
       }
-    } catch (_) {}
+    } catch {
+      // Tight poll races with browser close once prewarm resolves; the awaited
+      // prewarmDone promise is the source of truth, so swallow poll errors.
+    }
   }, 500);
 
   await prewarmDone;

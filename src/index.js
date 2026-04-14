@@ -182,7 +182,10 @@ async function calibrateElevation(trackData) {
         );
         data = await res.json();
         if (data.elevation) break;
-      } catch { /* retry */ }
+        console.log(`  DEM HTTP ${res.status}, retrying...`);
+      } catch (e) {
+        console.log(`  DEM fetch failed (${e.code || e.name || e.message}), retrying...`);
+      }
       console.log('  DEM rate limited, waiting 60s...');
       await new Promise(r => setTimeout(r, 60000));
     }
@@ -239,7 +242,9 @@ async function fetchCountryBorder(country) {
     );
     const data = await res.json();
     if (data.features?.[0]?.geometry) return data.features[0].geometry;
-  } catch { /* non-critical */ }
+  } catch (e) {
+    console.warn(`  Country border lookup failed (${e.code || e.message}); continuing without border.`);
+  }
   return null;
 }
 
@@ -309,13 +314,20 @@ async function queryRawPOIs(bounds) {
           `${server}?data=${encodeURIComponent(query)}`,
           { signal: AbortSignal.timeout(30000) },
         );
-        if (!res.ok) { await new Promise(r => setTimeout(r, 5000)); continue; }
+        if (!res.ok) {
+          console.log(`  Overpass ${server} HTTP ${res.status}, retrying...`);
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
         const data = await res.json();
         return parseRawPOIs(data.elements);
-      } catch { await new Promise(r => setTimeout(r, 5000)); }
+      } catch (e) {
+        console.log(`  Overpass ${server} failed (${e.code || e.name || e.message}), retrying...`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
     }
   }
-  console.warn('  POI query failed');
+  console.warn('  POI query failed on all Overpass mirrors; continuing without POIs.');
   return [];
 }
 
