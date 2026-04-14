@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trail · render</title>
+<link rel="preload" href="/fonts/fraunces.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f4ecd8'/%3E%3Cpath d='M 2 24 L 10 8 L 16 18 L 22 4 L 30 16 L 30 24 Z' fill='none' stroke='%23b4572c' stroke-width='2'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- Paper grain + contour pattern (SVG defs, reused across page) -->
+<svg class="defs" aria-hidden="true">
+  <defs>
+    <filter id="grain">
+      <feTurbulence baseFrequency="0.85" numOctaves="2" seed="3"/>
+      <feColorMatrix values="0 0 0 0 0.12  0 0 0 0 0.09  0 0 0 0 0.06  0 0 0 0.08 0"/>
+      <feComposite in2="SourceGraphic" operator="in"/>
+    </filter>
+    <pattern id="contours" x="0" y="0" width="480" height="320" patternUnits="userSpaceOnUse">
+      <path d="M 0 60 Q 80 30, 160 60 T 320 60 T 480 60"
+            fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.35"/>
+      <path d="M 0 130 Q 100 90, 200 130 T 400 130 T 600 130"
+            fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.3"/>
+      <path d="M 0 200 Q 60 170, 140 200 T 300 200 T 480 200"
+            fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.4"/>
+      <path d="M 0 270 Q 120 240, 240 270 T 480 270"
+            fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.25"/>
+    </pattern>
+  </defs>
+</svg>
+
+<div class="contour-bg" aria-hidden="true"></div>
+<div class="grain-bg" aria-hidden="true"></div>
+
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-main">T·R·A·I·L</span>
+    <span class="brand-dash">——</span>
+    <span class="brand-main">R·E·N·D·E·R</span>
+  </div>
+  <div class="header-compass" aria-hidden="true">
+    <svg viewBox="0 0 32 32" class="compass">
+      <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="0.8"/>
+      <path d="M 16 4 L 14 16 L 16 18 L 18 16 Z" fill="currentColor"/>
+      <path d="M 16 28 L 14 16 L 18 16 Z" fill="none" stroke="currentColor" stroke-width="0.6"/>
+      <text x="16" y="3" text-anchor="middle" font-size="3" font-family="Fraunces" font-weight="700" fill="currentColor">N</text>
+    </svg>
+  </div>
+  <div class="header-meta">
+    <span class="meta-line">SCALE 1 : 25 000</span>
+    <span class="meta-line">PROJECTION · WEB MERCATOR</span>
+  </div>
+</header>
+
+<main class="stage">
+
+  <!-- Left: the drop zone / progress / result -->
+  <section class="canvas" id="canvas">
+
+    <!-- State: empty -->
+    <div class="state state-empty" data-state="empty">
+      <svg class="elev-mark" viewBox="0 0 120 80" aria-hidden="true">
+        <path d="M 5 70 L 40 25 L 65 50 L 90 15 L 115 45 L 115 70 Z"
+              fill="none" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M 5 70 L 115 70" stroke="currentColor" stroke-width="0.6" stroke-dasharray="2 3"/>
+      </svg>
+      <h2 class="drop-title">drop a <em>.gpx</em> here</h2>
+      <p class="drop-sub">or <button type="button" class="linkish" id="browse-btn">browse a file</button></p>
+      <p class="drop-hint">Garmin · Komoot · Strava · Gaia — all accepted</p>
+      <input type="file" id="file-input" accept=".gpx,application/gpx+xml" hidden>
+    </div>
+
+    <!-- State: loaded (has a file) -->
+    <div class="state state-loaded" data-state="loaded" hidden>
+      <div class="file-card">
+        <div class="file-card-head">
+          <span class="file-card-kind">FILE</span>
+          <button type="button" class="file-card-clear" id="clear-btn" aria-label="Remove file">✕</button>
+        </div>
+        <div class="file-card-name" id="file-name">—</div>
+        <div class="file-card-stats">
+          <span id="stat-size">—</span>
+          <span class="sep">·</span>
+          <span id="stat-points">—</span>
+          <span class="sep">·</span>
+          <span id="stat-ready">ready</span>
+        </div>
+      </div>
+      <div class="canvas-hint">configure on the right, then commit the render</div>
+    </div>
+
+    <!-- State: running -->
+    <div class="state state-running" data-state="running" hidden>
+      <div class="run-head">
+        <span class="run-id" id="run-id">JOB · —</span>
+        <span class="run-timer" id="run-timer">00:00</span>
+      </div>
+
+      <ol class="phase-ladder" id="phase-ladder">
+        <li data-phase="queued">queued</li>
+        <li data-phase="parse">parse</li>
+        <li data-phase="network">network</li>
+        <li data-phase="plan">plan</li>
+        <li data-phase="prewarm">prewarm</li>
+        <li data-phase="capture">capture</li>
+        <li data-phase="encode">encode</li>
+        <li data-phase="done">done</li>
+      </ol>
+
+      <div class="capture-grid" id="capture-grid">
+        <div class="cap-row" data-sub="intro"><span class="cap-label">INTRO</span>  <div class="cap-bar"><div class="cap-fill"></div></div><span class="cap-num">—</span></div>
+        <div class="cap-row" data-sub="trail"><span class="cap-label">TRAIL</span>  <div class="cap-bar"><div class="cap-fill"></div></div><span class="cap-num">—</span></div>
+        <div class="cap-row" data-sub="finish"><span class="cap-label">FINISH</span> <div class="cap-bar"><div class="cap-fill"></div></div><span class="cap-num">—</span></div>
+      </div>
+
+      <div class="run-foot">
+        <span id="run-frame">frame — / —</span>
+        <span id="run-eta">ETA —</span>
+      </div>
+
+      <details class="run-log">
+        <summary>log</summary>
+        <pre id="run-log-body"></pre>
+      </details>
+    </div>
+
+    <!-- State: done -->
+    <div class="state state-done" data-state="done" hidden>
+      <div class="done-head">
+        <span class="done-tag">RENDER COMPLETE</span>
+        <span class="done-meta" id="done-meta">—</span>
+      </div>
+      <video class="done-video" id="done-video" controls></video>
+      <div class="done-actions">
+        <a class="btn-primary" id="download-btn" download>
+          <span class="btn-arrow">↓</span> DOWNLOAD MP4
+        </a>
+        <button type="button" class="btn-secondary" id="again-btn">render another</button>
+      </div>
+    </div>
+
+    <!-- State: error -->
+    <div class="state state-error" data-state="error" hidden>
+      <div class="err-tag">ERROR</div>
+      <pre class="err-msg" id="err-msg">—</pre>
+      <button type="button" class="btn-secondary" id="err-reset-btn">start over</button>
+    </div>
+  </section>
+
+  <!-- Right: options panel -->
+  <aside class="panel">
+    <div class="panel-head">
+      <span class="panel-kind">CONFIGURATION</span>
+      <span class="panel-index">§ 01</span>
+    </div>
+
+    <form id="options-form">
+
+      <fieldset class="field">
+        <label for="opt-title">start label</label>
+        <input id="opt-title" name="title" placeholder="(auto · reverse-geocoded)" autocomplete="off">
+      </fieldset>
+
+      <fieldset class="field">
+        <label for="opt-end">end label</label>
+        <input id="opt-end" name="end" placeholder="(auto · reverse-geocoded)" autocomplete="off">
+      </fieldset>
+
+      <fieldset class="field">
+        <label for="opt-name">intro title</label>
+        <input id="opt-name" name="name" placeholder="(optional · shown in intro)" autocomplete="off">
+      </fieldset>
+
+      <div class="field-row">
+        <fieldset class="field field-narrow">
+          <legend>fps</legend>
+          <div class="toggle" id="fps-toggle" data-name="fps">
+            <button type="button" data-value="30" class="active">30</button>
+            <button type="button" data-value="60">60</button>
+          </div>
+        </fieldset>
+
+        <fieldset class="field field-wide">
+          <legend>resolution</legend>
+          <div class="toggle" id="res-toggle" data-name="resolution">
+            <button type="button" data-value="1280x720">720p</button>
+            <button type="button" data-value="1920x1080" class="active">1080p</button>
+            <button type="button" data-value="3840x2160">4K</button>
+          </div>
+        </fieldset>
+      </div>
+
+      <details class="advanced">
+        <summary><span class="adv-caret">▸</span> advanced</summary>
+        <fieldset class="field">
+          <label for="opt-pace">trail pace · <span class="unit">s/km</span></label>
+          <input id="opt-pace" name="pace" type="number" step="0.1" min="0.1" placeholder="0.5">
+        </fieldset>
+        <fieldset class="field">
+          <label for="opt-intro">intro · <span class="unit">s</span></label>
+          <input id="opt-intro" name="intro" type="number" step="1" min="0" placeholder="9">
+        </fieldset>
+        <fieldset class="field">
+          <label for="opt-duration">duration override · <span class="unit">s</span></label>
+          <input id="opt-duration" name="duration" type="number" step="1" min="1" placeholder="auto">
+        </fieldset>
+      </details>
+
+      <button type="submit" class="render-btn" id="render-btn" disabled>
+        <span class="render-btn-axis">◤</span>
+        <span class="render-btn-label">COMMIT · RENDER</span>
+        <span class="render-btn-axis">◢</span>
+      </button>
+    </form>
+  </aside>
+</main>
+
+<footer class="site-footer">
+  <span>trail-render · MIT</span>
+  <span class="footer-coord">28° 33′ 01″ N &nbsp; 84° 14′ 30″ E</span>
+  <span>satellite · maptiler</span>
+</footer>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

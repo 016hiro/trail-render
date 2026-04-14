@@ -5,6 +5,7 @@
   "scripts": {
     "start": "bun src/index.js",
     "preview": "bun src/index.js --preview",
+    "web": "bun src/web-server.js",
     "detect:lod": "bun src/detect-lod-jumps.js",
     "regress": "bun scripts/regress.js",
     "test": "bun test test/unit",
