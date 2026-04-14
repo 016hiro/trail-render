@@ -19,6 +19,7 @@ export async function captureFrames({
   outputFile,
   introFrames = 0,
   finishFrames = 0,
+  onProgress = () => {},
 }) {
   const framesDir = path.join(outputDir, 'frames');
   await fs.mkdir(framesDir, { recursive: true });
@@ -48,18 +49,17 @@ export async function captureFrames({
   // reliable way to eliminate mid-recording color jumps caused by terrain DEM
   // tiles arriving and rebuilding the mesh under a fixed camera.
   console.log('Pre-warming all trail tiles (this takes ~20-40s)...');
+  onProgress({ type: 'phase', phase: 'prewarm' });
   const prewarmStart = Date.now();
 
-  // Kick off prewarm in the page (don't await — we'll poll progress).
-  // Pass totalFrames so prewarm can mirror the exact camera trajectory.
   const prewarmDone = page.evaluate((tf) => window.__prewarmTrail(tf), totalFrames);
 
-  // Poll progress so the user sees something happening
   let lastPct = -1;
   const progressTimer = setInterval(async () => {
     try {
       const pct = await page.evaluate(() => window.__prewarmProgress || 0);
       const intPct = Math.floor(pct * 100);
+      onProgress({ type: 'prewarm', pct });
       if (intPct !== lastPct && intPct % 10 === 0) {
         console.log(`  prewarm ${intPct}%`);
         lastPct = intPct;
@@ -100,13 +100,22 @@ export async function captureFrames({
       quality: 92,
     });
 
+    const subphase = i < introFrames ? 'intro' : (i >= trailEnd ? 'finish' : 'trail');
+    onProgress({
+      type: 'capture',
+      subphase,
+      frame: i,
+      totalFrames,
+      elapsedMs: Date.now() - t0,
+    });
+
     if (i % progressEvery === 0 || i === totalFrames - 1) {
-      const phase = i < introFrames ? 'intro ' : (i >= trailEnd ? 'finish' : 'trail ');
+      const label = subphase === 'trail' ? 'trail ' : (subphase === 'intro' ? 'intro ' : 'finish');
       const pct = ((i / totalFrames) * 100).toFixed(1).padStart(5);
       const elapsed = fmtMMSS((Date.now() - t0) / 1000);
       const perFrame = (Date.now() - t0) / (i + 1);
       const eta = fmtMMSS(((totalFrames - i - 1) * perFrame) / 1000);
-      const line = `  [${phase}] ${pct}%  ${String(i).padStart(5)}/${totalFrames}  ${elapsed} elapsed · ETA ${eta}`;
+      const line = `  [${label}] ${pct}%  ${String(i).padStart(5)}/${totalFrames}  ${elapsed} elapsed · ETA ${eta}`;
       if (isTTY) process.stderr.write('\r' + line + '\x1b[K');
       else console.log(line);
     }
@@ -117,6 +126,7 @@ export async function captureFrames({
   console.log('Browser closed.');
 
   // Encode with ffmpeg
+  onProgress({ type: 'phase', phase: 'encode' });
   console.log('Encoding MP4...');
   const cmd = [
     'ffmpeg', '-y',
