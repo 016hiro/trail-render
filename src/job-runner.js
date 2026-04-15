@@ -118,6 +118,7 @@ export async function runJob({
   intro,
   port = 3456,
   onProgress = () => {},
+  signal,
 }) {
   if (!apiKey) throw new Error('MAPTILER_KEY is required');
   if (!gpxPath) throw new Error('gpxPath is required');
@@ -126,6 +127,7 @@ export async function runJob({
   await fs.mkdir(path.dirname(path.resolve(output)), { recursive: true });
 
   const trackData = await prepareTrackData({ gpxPath, title, end, onProgress });
+  if (signal?.aborted) { const e = new Error('Render cancelled'); e.cancelled = true; throw e; }
 
   const overrides = {};
   if (pace != null) overrides.trailPace = pace;
@@ -155,6 +157,7 @@ export async function runJob({
       outputFile: path.resolve(output),
       introFrames, finishFrames,
       onProgress,
+      signal,
     });
   } finally {
     server.close();
