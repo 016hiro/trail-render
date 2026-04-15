@@ -182,16 +182,19 @@ app.get('/api/jobs/:id/events', (req, res) => {
 // past its initial buffer. Content-Disposition is NOT set here; the UI's
 // <a download="…"> attribute drives the download UX, so the same URL can
 // be both played inline and saved.
+//
+// Disk fallback: if the in-memory job record is gone (server restart) but
+// the artifact still exists at output/jobs/<id>/trail.mp4, serve it anyway.
+// Lets old job URLs survive restarts.
 app.get('/api/jobs/:id/download', async (req, res) => {
-  const job = jobs.get(req.params.id);
-  if (!job) return res.status(404).json({ error: 'Unknown job' });
-  if (!job.output) return res.status(409).json({ error: `Job not done (status=${job.status})` });
-  try {
-    await fs.access(job.output);
-  } catch {
-    return res.status(410).json({ error: 'Output file missing' });
+  const id = req.params.id;
+  let outputPath = jobs.get(id)?.output;
+  if (!outputPath) {
+    const fallback = path.join(JOBS_DIR, id, 'trail.mp4');
+    try { await fs.access(fallback); outputPath = fallback; } catch { /* fall through */ }
   }
-  res.sendFile(job.output, {
+  if (!outputPath) return res.status(404).json({ error: 'No artifact for this job id' });
+  res.sendFile(outputPath, {
     headers: { 'Content-Type': 'video/mp4' },
     acceptRanges: true,
     cacheControl: false,

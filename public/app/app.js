@@ -149,11 +149,19 @@ function subscribeEvents(jobId) {
       logBody.textContent += (evt.message || JSON.stringify(evt)) + '\n';
       logBody.scrollTop = logBody.scrollHeight;
     }
+    // Close on terminal events. EventSource auto-reconnects by default; if
+    // we don't close here, the server replays the whole event history on
+    // every reconnect, and the replayed 'done' event re-fires onDone which
+    // resets video.src — interrupting the user's playback after ~1 second.
+    if ((evt.type === 'phase' && evt.phase === 'done') || evt.type === 'error') {
+      es.close();
+    }
   };
 
   es.onerror = () => {
     // Stream closed — could be normal (server ended it after done/error)
-    // or network hiccup. Nothing actionable here.
+    // or network hiccup. Nothing actionable here; close() above handles
+    // the terminal cases so the auto-reconnect loop can't kick in.
   };
 }
 
@@ -270,7 +278,14 @@ function updateCapture(evt) {
 }
 
 /* ---------- Done / Error ---------- */
+let lastDoneJobId = null;
 function onDone(jobId, output) {
+  // Idempotent: if the same job's done event arrives twice (e.g. via SSE
+  // reconnect replay) don't reset the video element — that would yank
+  // currentTime back to 0 mid-playback.
+  if (lastDoneJobId === jobId) return;
+  lastDoneJobId = jobId;
+
   stopTimer();
   ['prewarm', 'intro', 'trail', 'finish'].forEach(completeRow);
   $('#phase-ladder li[data-phase="encode"]')?.classList.remove('active');
@@ -330,3 +345,34 @@ $('#err-reset-btn').addEventListener('click', resetAll);
 
 /* ---------- Init ---------- */
 showState('empty');
+
+// Resume / inspect an existing job via ?job=<id>. Handy for testing the
+// done-state video element without re-running the pipeline. If the server
+// still has the job in memory, subscribe to SSE (exercises the full event
+// replay path). If not, jump straight to done state pointing at the on-disk
+// artifact via the disk-fallback download endpoint.
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const testJobId = params.get('job');
+  if (!testJobId) return;
+
+  const r = await fetch(`/api/jobs/${testJobId}`).catch(() => null);
+  if (r && r.ok) {
+    const info = await r.json();
+    if (info.status === 'done' && info.output) {
+      onDone(testJobId, info.output);
+      return;
+    }
+    showState('running');
+    $('#run-id').textContent = `JOB · ${testJobId}`;
+    startTimer();
+    renderBtn.disabled = true;
+    subscribeEvents(testJobId);
+  } else {
+    // No in-memory record. Try the disk-fallback download URL directly.
+    const url = `/api/jobs/${testJobId}/download`;
+    const head = await fetch(url, { method: 'HEAD' }).catch(() => null);
+    if (head && head.ok) onDone(testJobId, url);
+    else showError(`No job '${testJobId}' on server or disk`);
+  }
+})();
