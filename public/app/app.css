@@ -326,9 +326,10 @@ a { color: inherit; text-decoration: none; }
   position: absolute; inset: 0; width: 0; background: var(--rust);
   transition: width 180ms linear;
 }
-.cap-row[data-sub="intro"]  .cap-fill { background: var(--moss); }
-.cap-row[data-sub="trail"]  .cap-fill { background: var(--rust); }
-.cap-row[data-sub="finish"] .cap-fill { background: var(--water); }
+.cap-row[data-sub="prewarm"] .cap-fill { background: var(--ink-mute); }
+.cap-row[data-sub="intro"]   .cap-fill { background: var(--moss); }
+.cap-row[data-sub="trail"]   .cap-fill { background: var(--rust); }
+.cap-row[data-sub="finish"]  .cap-fill { background: var(--water); }
 .cap-num {
   font-family: var(--font-mono);
   font-size: 12px;

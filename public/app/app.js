@@ -158,6 +158,11 @@ function subscribeEvents(jobId) {
 }
 
 /* ---------- Event handlers ---------- */
+// Cache the plan event so capture-frame events can compute per-subphase pct
+// without re-walking the server log. introFrames/finishFrames are the only
+// boundaries we need; trailFrames is derived.
+let plan = { introFrames: 0, finishFrames: 0, totalFrames: 0 };
+
 function handleEvent(evt, jobId) {
   switch (evt.type) {
     case 'phase':
@@ -168,16 +173,16 @@ function handleEvent(evt, jobId) {
       $('#stat-points').textContent = `${evt.downsampled} pts · ${evt.distanceKm.toFixed(1)} km`;
       break;
     case 'plan':
+      plan = {
+        introFrames: evt.introFrames,
+        finishFrames: evt.finishFrames,
+        totalFrames: evt.totalFrames,
+      };
       $('#run-eta').textContent = `total ${evt.duration}s · ${evt.totalFrames} frames`;
       break;
-    case 'prewarm': {
-      // Mirror prewarm progress onto all three bars — it's a pre-phase.
-      const pct = Math.max(0, Math.min(1, evt.pct || 0)) * 100;
-      $$('.cap-fill').forEach(el => el.style.width = `${pct}%`);
-      $$('.cap-fill').forEach(el => el.style.background = 'var(--ink-mute)');
-      $$('.cap-num').forEach((el) => el.textContent = `${pct.toFixed(0)}%`);
+    case 'prewarm':
+      updatePrewarm(evt.pct);
       break;
-    }
     case 'capture':
       updateCapture(evt);
       break;
@@ -198,52 +203,76 @@ function setPhase(phase) {
     if (i < idx) li.classList.add('done');
     if (i === idx) li.classList.add('active');
   });
-  if (phase === 'capture') {
-    // Reset bar colors from any prewarm override
-    $$('.cap-row[data-sub="intro"]  .cap-fill')[0].style.background = '';
-    $$('.cap-row[data-sub="trail"]  .cap-fill')[0].style.background = '';
-    $$('.cap-row[data-sub="finish"] .cap-fill')[0].style.background = '';
+  // Mark prewarm row complete the moment capture phase begins, so the user
+  // sees the prewarm checkmark even if no prewarm:1.0 event arrived in time.
+  if (phase === 'capture' || phase === 'encode' || phase === 'done') {
+    completeRow('prewarm');
   }
+}
+
+function updatePrewarm(rawPct) {
+  const pct = Math.max(0, Math.min(1, rawPct || 0)) * 100;
+  const row = $('.cap-row[data-sub="prewarm"]');
+  $('.cap-fill', row).style.width = `${pct}%`;
+  $('.cap-num',  row).textContent = `${pct.toFixed(0)}%`;
+}
+
+function completeRow(sub) {
+  const row = $(`.cap-row[data-sub="${sub}"]`);
+  if (!row) return;
+  $('.cap-fill', row).style.width = '100%';
+  $('.cap-num',  row).textContent = '✓';
 }
 
 function updateCapture(evt) {
   // evt: { subphase, frame, totalFrames, elapsedMs }
-  const sub = evt.subphase;
-  const row = $(`.cap-row[data-sub="${sub}"]`);
-  if (!row) return;
-  const fill = $('.cap-fill', row);
-  const num  = $('.cap-num', row);
+  // Use plan boundaries to compute per-subphase pct.
+  const total  = plan.totalFrames || evt.totalFrames;
+  const intro  = plan.introFrames;
+  const finish = plan.finishFrames;
+  const trailEnd = total - finish;
+  const trailFrames = trailEnd - intro;
 
-  // Compute per-phase pct using global frame index
-  // introFrames + trailFrames + finishFrames === totalFrames (stored in plan)
-  // We don't have exact boundaries client-side, so approximate by phase changes.
-  // Simpler: fill the current phase proportionally, mark prior ones complete.
-  const order = ['intro', 'trail', 'finish'];
-  const curIdx = order.indexOf(sub);
-  order.slice(0, curIdx).forEach(prior => {
-    const r = $(`.cap-row[data-sub="${prior}"]`);
-    $('.cap-fill', r).style.width = '100%';
-    $('.cap-num', r).textContent = '✓';
-  });
+  const subOrder = ['intro', 'trail', 'finish'];
+  const curIdx = subOrder.indexOf(evt.subphase);
+  // Mark every prior subphase as complete (✓)
+  subOrder.slice(0, curIdx).forEach(completeRow);
 
-  // Phase pct: we approximate per-phase by assuming uniform per-frame time.
-  // Server sends global frame index; for a rough visual we show overall pct in
-  // the active row for now. Good enough — the exact split is visible in num.
-  const globalPct = (evt.frame / evt.totalFrames) * 100;
-  fill.style.width = `${globalPct}%`;
-  num.textContent = `${evt.frame}/${evt.totalFrames}`;
+  // Compute per-subphase numerator/denominator + pct
+  let num, denom;
+  switch (evt.subphase) {
+    case 'intro':
+      num = evt.frame + 1;
+      denom = intro;
+      break;
+    case 'trail':
+      num = evt.frame - intro + 1;
+      denom = trailFrames;
+      break;
+    case 'finish':
+      num = evt.frame - trailEnd + 1;
+      denom = finish;
+      break;
+    default:
+      return;
+  }
+  const pct = denom > 0 ? Math.min(100, (num / denom) * 100) : 0;
+  const row = $(`.cap-row[data-sub="${evt.subphase}"]`);
+  $('.cap-fill', row).style.width = `${pct}%`;
+  $('.cap-num',  row).textContent = `${num}/${denom}`;
 
-  $('#run-frame').textContent = `frame ${evt.frame} / ${evt.totalFrames}`;
-
+  // Foot: global frame counter + ETA from global elapsed time
+  $('#run-frame').textContent = `frame ${evt.frame + 1} / ${total}`;
   const elapsedSec = (evt.elapsedMs || 0) / 1000;
   const perFrame = elapsedSec / (evt.frame + 1);
-  const etaSec = (evt.totalFrames - evt.frame - 1) * perFrame;
+  const etaSec = (total - evt.frame - 1) * perFrame;
   $('#run-eta').textContent = `ETA ${fmtMMSS(etaSec)}`;
 }
 
 /* ---------- Done / Error ---------- */
 function onDone(jobId, output) {
   stopTimer();
+  ['prewarm', 'intro', 'trail', 'finish'].forEach(completeRow);
   $('#phase-ladder li[data-phase="encode"]')?.classList.remove('active');
   $('#phase-ladder li[data-phase="encode"]')?.classList.add('done');
   $('#phase-ladder li[data-phase="done"]')?.classList.add('active');
@@ -286,6 +315,7 @@ function resetRunUI() {
   $('#run-eta').textContent = 'ETA —';
   $('#run-log-body').textContent = '';
   $$('#phase-ladder li').forEach(li => li.classList.remove('active', 'done'));
+  plan = { introFrames: 0, finishFrames: 0, totalFrames: 0 };
 }
 
 /* ---------- Reset buttons ---------- */
