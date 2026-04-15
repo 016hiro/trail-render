@@ -17,7 +17,6 @@
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { runJob } from './job-runner.js';
 
@@ -178,6 +177,11 @@ app.get('/api/jobs/:id/events', (req, res) => {
   req.on('close', () => job.subscribers.delete(res));
 });
 
+// Serve the rendered MP4. Uses res.sendFile so HTTP Range requests are
+// handled — the <video> element relies on Range to seek and to keep playing
+// past its initial buffer. Content-Disposition is NOT set here; the UI's
+// <a download="…"> attribute drives the download UX, so the same URL can
+// be both played inline and saved.
 app.get('/api/jobs/:id/download', async (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Unknown job' });
@@ -187,9 +191,11 @@ app.get('/api/jobs/:id/download', async (req, res) => {
   } catch {
     return res.status(410).json({ error: 'Output file missing' });
   }
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Content-Disposition', `attachment; filename="trail-${job.id}.mp4"`);
-  createReadStream(job.output).pipe(res);
+  res.sendFile(job.output, {
+    headers: { 'Content-Type': 'video/mp4' },
+    acceptRanges: true,
+    cacheControl: false,
+  });
 });
 
 app.get('/api/status', (_req, res) => {

@@ -125,7 +125,11 @@ export async function captureFrames({
   await browser.close();
   console.log('Browser closed.');
 
-  // Encode with ffmpeg
+  // Encode with ffmpeg.
+  // The -vf chain is critical: JPEG inputs default to full-range YUV, which
+  // ffmpeg then tags as `yuvj420p`. Browsers (especially Chrome/Safari) hate
+  // that non-standard tag and stall a second into playback. The scale filter
+  // converts full→limited range; format=yuv420p produces the canonical tag.
   onProgress({ type: 'phase', phase: 'encode' });
   console.log('Encoding MP4...');
   const cmd = [
@@ -133,7 +137,8 @@ export async function captureFrames({
     '-framerate', String(fps),
     '-i', path.join(framesDir, 'frame_%05d.jpg'),
     '-c:v', 'libx264',
-    '-pix_fmt', 'yuv420p',
+    '-vf', 'scale=in_range=full:out_range=tv,format=yuv420p',
+    '-color_range', 'tv',
     '-crf', '18',
     '-preset', 'medium',
     '-movflags', '+faststart',
