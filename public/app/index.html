@@ -96,6 +96,7 @@
     <div class="state state-running" data-state="running" hidden>
       <div class="run-head">
         <span class="run-id" id="run-id">JOB · —</span>
+        <span class="run-queue-pos" id="run-queue-pos" hidden>QUEUED · POS —</span>
         <span class="run-timer" id="run-timer">00:00</span>
       </div>
 
@@ -122,10 +123,22 @@
         <span id="run-eta">ETA —</span>
       </div>
 
+      <div class="run-controls">
+        <button type="button" class="btn-secondary btn-cancel" id="cancel-btn">▣ CANCEL RENDER</button>
+        <span class="run-reconnect" id="run-reconnect" hidden>· reconnecting …</span>
+      </div>
+
       <details class="run-log">
         <summary>log</summary>
         <pre id="run-log-body"></pre>
       </details>
+    </div>
+
+    <!-- State: cancelled -->
+    <div class="state state-cancelled" data-state="cancelled" hidden>
+      <div class="cancel-tag">RENDER CANCELLED</div>
+      <p class="cancel-meta" id="cancel-meta">—</p>
+      <button type="button" class="btn-secondary" id="cancel-reset-btn">start over</button>
     </div>
 
     <!-- State: done -->
@@ -159,6 +172,7 @@
     </div>
 
     <form id="options-form">
+     <fieldset id="options-fieldset">
 
       <fieldset class="field">
         <label for="opt-title">start label</label>
@@ -215,6 +229,7 @@
         <span class="render-btn-label">COMMIT · RENDER</span>
         <span class="render-btn-axis">◢</span>
       </button>
+     </fieldset>
     </form>
   </aside>
 </main>

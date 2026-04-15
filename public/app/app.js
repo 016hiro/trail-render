@@ -17,10 +17,13 @@ function showState(name) {
 
 /* ---------- File pick / drag-drop ---------- */
 let currentFile = null;
+let currentJobId = null;          // jobId of the active or last-finished render
 const fileInput = $('#file-input');
 const browseBtn = $('#browse-btn');
 const clearBtn  = $('#clear-btn');
 const renderBtn = $('#render-btn');
+const cancelBtn = $('#cancel-btn');
+const optsFieldset = $('#options-fieldset');
 
 browseBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => {
@@ -113,6 +116,8 @@ form.addEventListener('submit', async (e) => {
   resetRunUI();
   startTimer();
   renderBtn.disabled = true;
+  optsFieldset.disabled = true;
+  cancelBtn.disabled = false;
 
   let jobId;
   try {
@@ -127,8 +132,13 @@ form.addEventListener('submit', async (e) => {
     }
     const j = await res.json();
     jobId = j.jobId;
+    currentJobId = jobId;
+    history.replaceState(null, '', `?job=${jobId}`);
     $('#run-id').textContent = `JOB · ${jobId}`;
+    if (j.queuePosition) showQueuePosition(j.queuePosition);
   } catch (e) {
+    optsFieldset.disabled = false;
+    renderBtn.disabled = false;
     showError(e.message || String(e));
     return;
   }
@@ -136,33 +146,73 @@ form.addEventListener('submit', async (e) => {
   subscribeEvents(jobId);
 });
 
-/* ---------- SSE subscription ---------- */
+/* ---------- Cancel ---------- */
+cancelBtn.addEventListener('click', async () => {
+  if (!currentJobId) return;
+  cancelBtn.disabled = true;
+  cancelBtn.textContent = '▣ CANCELLING …';
+  try {
+    await fetch(`/api/jobs/${currentJobId}`, { method: 'DELETE' });
+  } catch {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = '▣ CANCEL RENDER';
+  }
+  // The actual UI transition to the cancelled state happens when the
+  // 'phase':'cancelled' event arrives via SSE, not here — that way
+  // server-driven cancellation looks identical to button-driven.
+});
+
+/* ---------- SSE subscription with backoff reconnect ---------- */
 function subscribeEvents(jobId) {
-  const es = new EventSource(`/api/jobs/${jobId}/events`);
   const logBody = $('#run-log-body');
+  const reconnectIndicator = $('#run-reconnect');
+  let backoffMs = 1000;
+  let terminal = false;
+  let currentEs = null;
 
-  es.onmessage = (ev) => {
-    let evt;
-    try { evt = JSON.parse(ev.data); } catch { return; }
-    handleEvent(evt, jobId);
-    if (evt.type === 'log' || evt.message) {
-      logBody.textContent += (evt.message || JSON.stringify(evt)) + '\n';
-      logBody.scrollTop = logBody.scrollHeight;
-    }
-    // Close on terminal events. EventSource auto-reconnects by default; if
-    // we don't close here, the server replays the whole event history on
-    // every reconnect, and the replayed 'done' event re-fires onDone which
-    // resets video.src — interrupting the user's playback after ~1 second.
-    if ((evt.type === 'phase' && evt.phase === 'done') || evt.type === 'error') {
+  const isTerminal = (evt) =>
+    (evt.type === 'phase' && ['done', 'cancelled'].includes(evt.phase)) ||
+    evt.type === 'error';
+
+  function connect() {
+    const es = new EventSource(`/api/jobs/${jobId}/events`);
+    currentEs = es;
+
+    es.onopen = () => {
+      backoffMs = 1000;
+      reconnectIndicator.hidden = true;
+    };
+
+    es.onmessage = (ev) => {
+      let evt;
+      try { evt = JSON.parse(ev.data); } catch { return; }
+      handleEvent(evt, jobId);
+      if (evt.type === 'log' || (evt.message && evt.type !== 'phase')) {
+        logBody.textContent += (evt.message || JSON.stringify(evt)) + '\n';
+        logBody.scrollTop = logBody.scrollHeight;
+      }
+      // Close on terminal events to stop EventSource's auto-reconnect from
+      // making the server replay the whole event history (which would
+      // re-fire onDone and reset video.src — see devlog 2026-04-15 bug 3).
+      if (isTerminal(evt)) {
+        terminal = true;
+        es.close();
+      }
+    };
+
+    es.onerror = () => {
       es.close();
-    }
-  };
+      if (terminal) return;
+      // Genuine network blip (or server restart). Show a "reconnecting…"
+      // hint and retry with exponential backoff capped at 30 s.
+      reconnectIndicator.hidden = false;
+      setTimeout(connect, backoffMs);
+      backoffMs = Math.min(backoffMs * 2, 30000);
+    };
+  }
 
-  es.onerror = () => {
-    // Stream closed — could be normal (server ended it after done/error)
-    // or network hiccup. Nothing actionable here; close() above handles
-    // the terminal cases so the auto-reconnect loop can't kick in.
-  };
+  connect();
+  return () => { terminal = true; currentEs?.close(); };
 }
 
 /* ---------- Event handlers ---------- */
@@ -175,7 +225,13 @@ function handleEvent(evt, jobId) {
   switch (evt.type) {
     case 'phase':
       setPhase(evt.phase);
+      if (evt.phase === 'queued' && evt.queuePosition) showQueuePosition(evt.queuePosition);
+      if (evt.phase === 'running') hideQueuePosition();
       if (evt.phase === 'done') onDone(jobId, evt.output);
+      if (evt.phase === 'cancelled') onCancelled(jobId);
+      break;
+    case 'queue':
+      showQueuePosition(evt.queuePosition);
       break;
     case 'track':
       $('#stat-points').textContent = `${evt.downsampled} pts · ${evt.distanceKm.toFixed(1)} km`;
@@ -196,9 +252,19 @@ function handleEvent(evt, jobId) {
       break;
     case 'error':
       stopTimer();
+      optsFieldset.disabled = false;
       showError(evt.message);
       break;
   }
+}
+
+function showQueuePosition(pos) {
+  const el = $('#run-queue-pos');
+  el.textContent = `QUEUED · POS ${pos}`;
+  el.hidden = false;
+}
+function hideQueuePosition() {
+  $('#run-queue-pos').hidden = true;
 }
 
 function setPhase(phase) {
@@ -277,16 +343,14 @@ function updateCapture(evt) {
   $('#run-eta').textContent = `ETA ${fmtMMSS(etaSec)}`;
 }
 
-/* ---------- Done / Error ---------- */
+/* ---------- Done / Cancelled / Error ---------- */
 let lastDoneJobId = null;
 function onDone(jobId, output) {
-  // Idempotent: if the same job's done event arrives twice (e.g. via SSE
-  // reconnect replay) don't reset the video element — that would yank
-  // currentTime back to 0 mid-playback.
-  if (lastDoneJobId === jobId) return;
+  if (lastDoneJobId === jobId) return;  // idempotent — see devlog 2026-04-15 bug 3
   lastDoneJobId = jobId;
 
   stopTimer();
+  optsFieldset.disabled = false;
   ['prewarm', 'intro', 'trail', 'finish'].forEach(completeRow);
   $('#phase-ladder li[data-phase="encode"]')?.classList.remove('active');
   $('#phase-ladder li[data-phase="encode"]')?.classList.add('done');
@@ -297,6 +361,16 @@ function onDone(jobId, output) {
   $('#download-btn').setAttribute('download', `trail-${jobId}.mp4`);
   $('#done-meta').textContent = `JOB · ${jobId}`;
   showState('done');
+}
+
+let lastCancelledJobId = null;
+function onCancelled(jobId) {
+  if (lastCancelledJobId === jobId) return;  // same idempotency rationale as onDone
+  lastCancelledJobId = jobId;
+  stopTimer();
+  optsFieldset.disabled = false;
+  $('#cancel-meta').textContent = `JOB · ${jobId}`;
+  showState('cancelled');
 }
 
 function showError(msg) {
@@ -331,48 +405,60 @@ function resetRunUI() {
   $('#run-log-body').textContent = '';
   $$('#phase-ladder li').forEach(li => li.classList.remove('active', 'done'));
   plan = { introFrames: 0, finishFrames: 0, totalFrames: 0 };
+  hideQueuePosition();
+  cancelBtn.textContent = '▣ CANCEL RENDER';
+  cancelBtn.disabled = false;
+  $('#run-reconnect').hidden = true;
 }
 
 /* ---------- Reset buttons ---------- */
 function resetAll() {
   currentFile = null;
+  currentJobId = null;
   fileInput.value = '';
   renderBtn.disabled = true;
+  optsFieldset.disabled = false;
+  history.replaceState(null, '', location.pathname);
   showState('empty');
 }
 $('#again-btn').addEventListener('click', resetAll);
 $('#err-reset-btn').addEventListener('click', resetAll);
+$('#cancel-reset-btn').addEventListener('click', resetAll);
 
 /* ---------- Init ---------- */
 showState('empty');
 
-// Resume / inspect an existing job via ?job=<id>. Handy for testing the
-// done-state video element without re-running the pipeline. If the server
-// still has the job in memory, subscribe to SSE (exercises the full event
-// replay path). If not, jump straight to done state pointing at the on-disk
-// artifact via the disk-fallback download endpoint.
+// Resume an in-progress (or already-finished) render via ?job=<id>. The
+// URL is automatically rewritten on submit, so a refresh during a render
+// drops back into the live view. Also doubles as a debug entry point —
+// open ?job=<id> on any artifact still on disk to inspect it.
 (async () => {
   const params = new URLSearchParams(location.search);
-  const testJobId = params.get('job');
-  if (!testJobId) return;
+  const jobId = params.get('job');
+  if (!jobId) return;
 
-  const r = await fetch(`/api/jobs/${testJobId}`).catch(() => null);
+  currentJobId = jobId;
+  const r = await fetch(`/api/jobs/${jobId}`).catch(() => null);
+
   if (r && r.ok) {
     const info = await r.json();
-    if (info.status === 'done' && info.output) {
-      onDone(testJobId, info.output);
-      return;
-    }
+    if (info.status === 'done' && info.output)   { onDone(jobId, info.output); return; }
+    if (info.status === 'cancelled')             { onCancelled(jobId); return; }
+    if (info.status === 'error')                 { showError(info.error || 'Unknown error'); return; }
+    // queued or running — replay history + subscribe live
     showState('running');
-    $('#run-id').textContent = `JOB · ${testJobId}`;
+    optsFieldset.disabled = true;
+    $('#run-id').textContent = `JOB · ${jobId}`;
+    if (info.queuePosition) showQueuePosition(info.queuePosition);
     startTimer();
     renderBtn.disabled = true;
-    subscribeEvents(testJobId);
+    subscribeEvents(jobId);
   } else {
-    // No in-memory record. Try the disk-fallback download URL directly.
-    const url = `/api/jobs/${testJobId}/download`;
+    // No in-memory record. The artifact may still exist on disk via the
+    // download fallback — show the done state pointing at it.
+    const url = `/api/jobs/${jobId}/download`;
     const head = await fetch(url, { method: 'HEAD' }).catch(() => null);
-    if (head && head.ok) onDone(testJobId, url);
-    else showError(`No job '${testJobId}' on server or disk`);
+    if (head && head.ok) onDone(jobId, url);
+    else showError(`No job '${jobId}' on server or disk`);
   }
 })();
