@@ -1,6 +1,6 @@
 {
   "name": "trail-render",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "start": "bun src/index.js",
